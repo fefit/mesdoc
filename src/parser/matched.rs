@@ -5,14 +5,16 @@
 * class: .{identity}
 * attribute: [{identity}{rule##"(^|*~$)?=('")"##}]
 */
+use crate::utils::to_static_str;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+
 lazy_static! {
     static ref MATCHED_TYPES: Mutex<HashMap<&'static str, Box<dyn Matched>>> =
         Mutex::new(HashMap::new());
-    static ref REGEXS: Mutex<HashMap<&'static str, Regex>> = Mutex::new(HashMap::new());
+    static ref REGEXS: Mutex<HashMap<&'static str, Arc<Regex>>> = Mutex::new(HashMap::new());
 }
 pub trait Matched: Send {
     fn matched(&mut self, chars: &[char]) -> Option<Vec<char>>;
@@ -63,7 +65,7 @@ pub struct AttrKey;
 
 impl Matched for AttrKey {
     fn matched(&mut self, chars: &[char]) -> Option<Vec<char>> {
-        let identity = Identity;
+        let mut identity = Identity;
         let mut start_index: usize = 0;
         let mut result = Vec::with_capacity(5);
         let total_chars = chars.len();
@@ -104,44 +106,43 @@ impl Matched for Spaces {
         None
     }
 }
-/// Rule
-pub struct Rule {
+/// Regexp
+pub struct Regexp {
     pub cache: bool,
     pub context: &'static str,
     pub captures: Vec<&'static str>,
 }
 
-impl Matched for Rule {
+impl Matched for Regexp {
     fn matched(&mut self, chars: &[char]) -> Option<Vec<char>> {
         let Self { context, cache, .. } = *self;
         let wrong_regex = format!("wrong regex context '{}'", context);
-        let last_context = (String::from("^") + context).as_str();
-        let rule: &Regex = if cache {
-            let regexs = REGEXS.lock().unwrap();
-            if let Some(rule) = regexs.get(last_context) {
-                rule
+        let last_context = String::from("^") + context;
+        let rule = if cache {
+            let mut regexs = REGEXS.lock().unwrap();
+            if let Some(rule) = regexs.get(&last_context[..]) {
+                Arc::clone(rule)
             } else {
-                let rule = Regex::new(last_context).expect(&wrong_regex);
-                regexs.insert(last_context, rule);
-                &rule
+                let key = &to_static_str(last_context);
+                let rule = Regex::new(key).expect(&wrong_regex);
+                let value = Arc::new(rule);
+                let result = Arc::clone(&value);
+                regexs.insert(key, value);
+                result
             }
         } else {
-            &Regex::new(last_context).expect(&wrong_regex)
+            let key = &last_context[..];
+            Arc::new(Regex::new(key).expect(&wrong_regex))
         };
-        let content = chars.iter().collect::<String>();
-        if let Some(caps) = rule.captures(&content) {
+        let content = to_static_str(chars.iter().collect::<String>());
+        if let Some(caps) = rule.captures(content) {
             let total_len = caps[0].len();
             for m in caps.iter().skip(1) {
                 if let Some(m) = m {
                     self.captures.push(m.as_str());
                 }
             }
-            return Some(
-                chars[..total_len]
-                    .iter()
-                    .map(|ch| *ch)
-                    .collect::<Vec<char>>(),
-            );
+            return Some(chars[..total_len].to_vec());
         }
         None
     }
@@ -168,5 +169,3 @@ impl Matched for Index {
         None
     }
 }
-
-pub fn add_matched_type<T: Matched>(name: &'static str, cur_type: T) {}
