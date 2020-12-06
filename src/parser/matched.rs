@@ -8,12 +8,10 @@
 use crate::utils::to_static_str;
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::{collections::HashMap, str::FromStr};
 
 lazy_static! {
-    static ref MATCHED_TYPES: Mutex<HashMap<&'static str, Box<dyn Matched>>> =
-        Mutex::new(HashMap::new());
     static ref REGEXS: Mutex<HashMap<&'static str, Arc<Regex>>> = Mutex::new(HashMap::new());
 }
 pub trait Matched: Send {
@@ -167,5 +165,17 @@ impl Matched for Index {
             return Some(result);
         }
         None
+    }
+}
+impl FromStr for Index {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Err(String::from(""))
+    }
+}
+
+pub fn gen(name: &str, params: &str) -> Result<Box<dyn Matched>, String> {
+    match name {
+        "index" => Index::from_str(params).map(|m| Box::new(m)),
     }
 }
