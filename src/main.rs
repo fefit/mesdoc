@@ -1,3 +1,7 @@
+use gotdom::parser::rule::*;
 fn main() {
-    println!("Hello, world!");
+  let rule: Rule = ":nth-child({spaces}{index}{spaces(0)})".into();
+  print!("rule {:?}", rule);
+  let rule: Rule = "[{{spaces}{attr_key}{regexp!#abc#}]".into();
+  print!("rule {:?}", rule);
 }
