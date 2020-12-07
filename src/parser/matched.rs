@@ -8,14 +8,23 @@
 use crate::utils::to_static_str;
 use lazy_static::lazy_static;
 use regex::Regex;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::{collections::HashMap, str::FromStr};
 
 lazy_static! {
     static ref REGEXS: Mutex<HashMap<&'static str, Arc<Regex>>> = Mutex::new(HashMap::new());
 }
+pub fn no_implemented(name: &str) -> ! {
+    panic!(format!("Can't parse '{}' to a Matched trait type.", name));
+}
 pub trait Matched: Send {
     fn matched(&mut self, chars: &[char]) -> Option<Vec<char>>;
+    fn from_params(s: &str, _p: &str) -> Result<Box<Self>, String>
+    where
+        Self: Sized,
+    {
+        no_implemented(s);
+    }
 }
 
 impl Matched for &[char] {
@@ -57,6 +66,10 @@ impl Matched for Identity {
         }
         Some(result)
     }
+    // from_str
+    fn from_params(s: &str, p: &str) -> Result<Box<Self>, String> {
+        check_params_return(&[s, p], || Box::new(Identity))
+    }
 }
 /// AttrKey
 pub struct AttrKey;
@@ -67,7 +80,7 @@ impl Matched for AttrKey {
         let mut start_index: usize = 0;
         let mut result = Vec::with_capacity(5);
         let total_chars = chars.len();
-        while let Some(matched) = identity.matched(&chars[start_index..]) {
+        while let Some(matched) = Matched::matched(&mut identity, &chars[start_index..]) {
             let count = matched.len();
             let next_index = count + start_index;
             result.extend(matched);
@@ -84,9 +97,13 @@ impl Matched for AttrKey {
         }
         None
     }
+    // from_params
+    fn from_params(s: &str, p: &str) -> Result<Box<Self>, String> {
+        check_params_return(&[s, p], || Box::new(AttrKey))
+    }
 }
 /// Spaces
-pub struct Spaces;
+pub struct Spaces(usize);
 
 impl Matched for Spaces {
     fn matched(&mut self, chars: &[char]) -> Option<Vec<char>> {
@@ -98,55 +115,31 @@ impl Matched for Spaces {
                 break;
             }
         }
-        if !result.is_empty() {
+        if result.len() >= self.0 {
             return Some(result);
         }
         None
     }
-}
-/// Regexp
-pub struct Regexp {
-    pub cache: bool,
-    pub context: &'static str,
-    pub captures: Vec<&'static str>,
-}
-
-impl Matched for Regexp {
-    fn matched(&mut self, chars: &[char]) -> Option<Vec<char>> {
-        let Self { context, cache, .. } = *self;
-        let wrong_regex = format!("wrong regex context '{}'", context);
-        let last_context = String::from("^") + context;
-        let rule = if cache {
-            let mut regexs = REGEXS.lock().unwrap();
-            if let Some(rule) = regexs.get(&last_context[..]) {
-                Arc::clone(rule)
-            } else {
-                let key = &to_static_str(last_context);
-                let rule = Regex::new(key).expect(&wrong_regex);
-                let value = Arc::new(rule);
-                let result = Arc::clone(&value);
-                regexs.insert(key, value);
-                result
-            }
-        } else {
-            let key = &last_context[..];
-            Arc::new(Regex::new(key).expect(&wrong_regex))
-        };
-        let content = to_static_str(chars.iter().collect::<String>());
-        if let Some(caps) = rule.captures(content) {
-            let total_len = caps[0].len();
-            for m in caps.iter().skip(1) {
-                if let Some(m) = m {
-                    self.captures.push(m.as_str());
-                }
-            }
-            return Some(chars[..total_len].to_vec());
+    fn from_params(s: &str, p: &str) -> Result<Box<Self>, String> {
+        let mut min_count = 0;
+        if !p.is_empty() {
+            return Err(format!("Spaces not support param '{}'", p));
         }
-        None
+        if !s.trim().is_empty() {
+            let mut rule: [Box<dyn Matched>; 3] = [Box::new('('), Box::new(Index), Box::new(')')];
+            let (result, match_all) = exec(&mut rule, s);
+            if !match_all {
+                return Err(format!("wrong 'Spaces{}'", s));
+            }
+            let index = result[1].iter().collect::<String>();
+            min_count = index.parse::<usize>().map_err(|e| e.to_string())?;
+        }
+        Ok(Box::new(Spaces(min_count)))
     }
 }
+
 /// Index
-pub struct Index(usize);
+pub struct Index;
 
 impl Matched for Index {
     fn matched(&mut self, chars: &[char]) -> Option<Vec<char>> {
@@ -166,16 +159,110 @@ impl Matched for Index {
         }
         None
     }
+    fn from_params(s: &str, p: &str) -> Result<Box<Self>, String> {
+        check_params_return(&[s, p], || Box::new(Index))
+    }
 }
-impl FromStr for Index {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Err(String::from(""))
+/// Regexp
+pub struct Regexp<'a> {
+    pub cache: bool,
+    pub context: &'a str,
+    pub captures: Vec<&'a str>,
+}
+
+impl<'a> Matched for Regexp<'a> {
+    fn matched(&mut self, chars: &[char]) -> Option<Vec<char>> {
+        let Self { context, cache, .. } = *self;
+        let content = to_static_str(chars.iter().collect::<String>());
+        let rule = Regexp::get_rule(context, cache);
+        if let Some(caps) = rule.captures(content) {
+            let total_len = caps[0].len();
+            for m in caps.iter().skip(1) {
+                if let Some(m) = m {
+                    self.captures.push(m.as_str());
+                }
+            }
+            return Some(chars[..total_len].to_vec());
+        }
+        None
+    }
+    fn from_params(s: &str, p: &str) -> Result<Box<Self>, String> {
+        let mut cache = true;
+        if !s.is_empty() {
+            if s == "!" {
+                cache = false;
+            } else {
+                return Err(format!(""));
+            }
+        }
+        Ok(Box::new(Regexp {
+            context: to_static_str(p.to_string()),
+            cache,
+            captures: vec![],
+        }))
     }
 }
 
-pub fn gen(name: &str, params: &str) -> Result<Box<dyn Matched>, String> {
-    match name {
-        "index" => Index::from_str(params).map(|m| Box::new(m)),
+impl<'a> Regexp<'a> {
+    fn get_rule(context: &str, cache: bool) -> Arc<Regex> {
+        let wrong_regex = format!("wrong regex context '{}'", context);
+        let last_context = String::from("^") + context;
+        let rule = if cache {
+            let mut regexs = REGEXS.lock().unwrap();
+            if let Some(rule) = regexs.get(&last_context[..]) {
+                Arc::clone(rule)
+            } else {
+                let key = &to_static_str(last_context);
+                let rule = Regex::new(key).expect(&wrong_regex);
+                let value = Arc::new(rule);
+                let result = Arc::clone(&value);
+                regexs.insert(key, value);
+                result
+            }
+        } else {
+            let key = &last_context[..];
+            Arc::new(Regex::new(key).expect(&wrong_regex))
+        };
+        rule
     }
+}
+
+pub fn to_matched(name: &str, s: &str, p: &str) -> Result<Box<dyn Matched>, String> {
+    let result: Box<dyn Matched> = match name {
+        "identity" => Identity::from_params(s, p)?,
+        "spaces" => Spaces::from_params(s, p)?,
+        "attr_key" => AttrKey::from_params(s, p)?,
+        "index" => Index::from_params(s, p)?,
+        "regexp" => Regexp::from_params(s, p)?,
+        _ => no_implemented(name),
+    };
+    Ok(result)
+}
+
+pub fn exec(queues: &mut [Box<dyn Matched>], query: &str) -> (Vec<Vec<char>>, bool) {
+    let chars: Vec<char> = query.chars().collect();
+    let mut start_index = 0;
+    let mut result: Vec<Vec<char>> = Vec::with_capacity(queues.len());
+    for item in queues {
+        if let Some(matched) = item.matched(&chars[start_index..]) {
+            start_index += matched.len();
+            result.push(matched);
+        } else {
+            break;
+        }
+    }
+    (result, start_index == chars.len() - 1)
+}
+
+pub fn check_params_return<T, F: Fn() -> Box<T>>(params: &[&str], cb: F) -> Result<Box<T>, String> {
+    for &p in params {
+        if !p.is_empty() {
+            let all_params = params.iter().fold(String::from(""), |mut r, &s| {
+                r.push_str(s);
+                r
+            });
+            return Err(format!("Unrecognized params '{}'", all_params));
+        }
+    }
+    Ok(cb())
 }
