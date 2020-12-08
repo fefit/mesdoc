@@ -15,7 +15,7 @@ lazy_static! {
   static ref REGEXS: Mutex<HashMap<&'static str, Arc<Regex>>> = Mutex::new(HashMap::new());
 }
 pub fn no_implemented(name: &str) -> ! {
-  panic!(format!("Can't parse '{}' to a Matched trait type.", name));
+  panic!("No supported Matched type '{}' found", name);
 }
 pub trait Matched: Send + Debug {
   fn matched(&mut self, chars: &[char]) -> Option<Vec<char>>;
@@ -200,7 +200,7 @@ impl<'a> Matched for Regexp<'a> {
       if s == "!" {
         cache = false;
       } else {
-        return Err(format!(""));
+        return Err("Wrong param of Matched type 'regexp', just allow '!' to generate a regexp with 'cached' field falsely.".into());
       }
     }
     Ok(Box::new(Regexp {
@@ -213,7 +213,7 @@ impl<'a> Matched for Regexp<'a> {
 
 impl<'a> Regexp<'a> {
   fn get_rule(context: &str, cache: bool) -> Arc<Regex> {
-    let wrong_regex = format!("wrong regex context '{}'", context);
+    let wrong_regex = format!("Wrong regex context '{}'", context);
     let last_context = String::from("^") + context;
     let rule = if cache {
       let mut regexs = REGEXS.lock().unwrap();

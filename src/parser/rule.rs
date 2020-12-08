@@ -5,9 +5,20 @@ use crate::utils::vec_char_to_clean_str;
 pub struct Rule {
   pub queues: Vec<Box<dyn Matched>>,
 }
+
+// get char vec
 const DEF_SIZE: usize = 2;
 fn get_char_vec() -> Vec<char> {
   Vec::with_capacity(DEF_SIZE)
+}
+
+// unmatched start or end
+fn panic_unmatched(ch: char, index: usize) -> ! {
+  panic!(
+    "Unmatched '{ch}' at index {index},you can escape it using both {ch}{ch}",
+    ch = ch,
+    index = index
+  )
 }
 
 struct MatchedStore {
@@ -39,35 +50,51 @@ impl MatchedStore {
     let name = vec_char_to_clean_str(&mut self.names);
     let s = vec_char_to_clean_str(&mut self.suf_params);
     let r = vec_char_to_clean_str(&mut self.raw_params);
-    println!("name:{}, s:{}, r:{}", name, s, r);
     to_matched(name, s, r)
   }
 }
 
 impl From<&str> for Rule {
+  /// generate a rule from string.
   fn from(content: &str) -> Self {
-    // :nth-child({spaces}{index}{spaces})
-    let mut prev_char = '\0';
+    const ANCHOR_CHAR: char = '\0';
+    const START_CHAR: char = '{';
+    const END_CHAR: char = '}';
+    let mut prev_char = ANCHOR_CHAR;
     let mut store: MatchedStore = Default::default();
     let mut raw_chars = get_char_vec();
     let mut queues: Vec<Box<dyn Matched>> = Vec::with_capacity(DEF_SIZE);
     let mut is_matched_finish = false;
+    let mut index: usize = 0;
     for ch in content.chars() {
+      index += 1;
+      let is_prev_matched_finish = if is_matched_finish {
+        is_matched_finish = false;
+        true
+      } else {
+        false
+      };
       if store.is_wait_end {
         if ch.is_ascii_whitespace() {
           continue;
         }
-        if ch == '}' {
+        if ch == END_CHAR {
           is_matched_finish = true;
         } else {
-          panic!("wrong end");
+          panic!(
+            "Unexpect end of Matched type '{}' at index {}, expect '{}' but found '{}'",
+            vec_char_to_clean_str(&mut store.names),
+            index - 1,
+            END_CHAR,
+            ch
+          );
         }
       } else if !store.is_in_matched {
         // when not in matched
-        if prev_char == '{' {
+        if prev_char == START_CHAR {
           // translate '{'
-          if ch == '{' {
-            prev_char = '\0';
+          if ch == START_CHAR {
+            prev_char = ANCHOR_CHAR;
             continue;
           } else {
             store.names.push(ch);
@@ -79,8 +106,19 @@ impl From<&str> for Rule {
               raw_chars.clear();
             }
           }
+        } else if prev_char == END_CHAR {
+          if is_prev_matched_finish {
+            // is just end of the Matched type.
+            raw_chars.push(ch);
+          } else if ch == END_CHAR {
+            // translate end char '}'
+            prev_char = ANCHOR_CHAR;
+            continue;
+          } else {
+            // panic no matched
+            panic_unmatched(END_CHAR, index - 2);
+          }
         } else {
-          // push to raw_chars
           raw_chars.push(ch);
         }
       } else if !store.raw_params.is_empty() {
@@ -137,26 +175,28 @@ impl From<&str> for Rule {
         }
       }
       if is_matched_finish {
-        println!("finished====>{}", ch);
         match store.next() {
           Ok(queue) => queues.push(queue),
           Err(reason) => panic!(reason),
         };
-        is_matched_finish = false;
       }
       prev_char = ch;
-      println!("ch ------>{}", ch);
     }
+    // not end
     if store.is_wait_end || store.is_in_matched {
       panic!(format!(
         "The Mathed type '{}' is not complete",
         store.names.iter().collect::<String>()
       ));
     }
+    if prev_char == START_CHAR || (prev_char == END_CHAR && !is_matched_finish) {
+      panic_unmatched(prev_char, index - 1);
+    }
     if !raw_chars.is_empty() {
       queues.push(Box::new(raw_chars));
     }
-    println!("last===>, queues:{:?}", queues);
     Rule { queues }
   }
 }
+
+impl Rule {}
