@@ -21,14 +21,14 @@ fn no_implemented(name: &str) -> ! {
   panic!("No supported Pattern type '{}' found", name);
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct MatchedData {
   pub chars: Vec<char>,
   pub name: &'static str,
   pub data: HashMap<&'static str, &'static str>,
 }
 pub trait Pattern: Send + Debug {
-  fn matched(&mut self, chars: &[char]) -> Option<MatchedData>;
+  fn matched(&self, chars: &[char]) -> Option<MatchedData>;
   // get a pattern trait object
   fn from_params(s: &str, _p: &str) -> Result<Box<dyn Pattern>, String>
   where
@@ -39,7 +39,7 @@ pub trait Pattern: Send + Debug {
 }
 
 impl Pattern for char {
-  fn matched(&mut self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
     if *self == chars[0] {
       return Some(MatchedData {
         chars: vec![*self],
@@ -51,7 +51,7 @@ impl Pattern for char {
 }
 
 impl Pattern for &[char] {
-  fn matched(&mut self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
     let total = self.len();
     if total > chars.len() {
       return None;
@@ -73,19 +73,27 @@ impl Pattern for &[char] {
 }
 
 impl Pattern for Vec<char> {
-  fn matched(&mut self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
     self.as_slice().matched(chars)
   }
 }
 /// Identity
 #[derive(Debug, Default)]
-pub struct Identity;
+pub struct Identity(bool);
 
 impl Pattern for Identity {
-  fn matched(&mut self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
     let mut result: Vec<char> = Vec::with_capacity(5);
     let first = chars[0];
+    let name: &str = "identity";
     if !(first.is_ascii_alphabetic() || first == '_') {
+      if self.0 {
+        // optional
+        return Some(MatchedData {
+          name,
+          ..Default::default()
+        });
+      }
       return None;
     }
     for &c in chars {
@@ -95,20 +103,19 @@ impl Pattern for Identity {
         break;
       }
     }
-    let mut data = HashMap::with_capacity(1);
-    data.insert("identity", to_static_str(result.iter().collect::<String>()));
     Some(MatchedData {
       chars: result,
-      name: "identity",
-      data,
+      name,
+      ..Default::default()
     })
   }
   // from_str
-  fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String>
-  where
-    Self: Sized,
-  {
-    check_params_return(&[s, p], || Box::new(Identity::default()))
+  fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+    if s == "?" {
+      Ok(Box::new(Identity(true)))
+    } else {
+      check_params_return(&[p], || Box::new(Identity::default()))
+    }
   }
 }
 /// AttrKey
@@ -116,7 +123,7 @@ impl Pattern for Identity {
 pub struct AttrKey;
 
 impl Pattern for AttrKey {
-  fn matched(&mut self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
     let mut identity = Identity::default();
     let mut start_index: usize = 0;
     let mut result = Vec::with_capacity(5);
@@ -135,12 +142,10 @@ impl Pattern for AttrKey {
       }
     }
     if !result.is_empty() {
-      let mut data = HashMap::with_capacity(1);
-      data.insert("attr_key", to_static_str(result.iter().collect::<String>()));
       return Some(MatchedData {
         chars: result,
         name: "attr_key",
-        data,
+        ..Default::default()
       });
     }
     None
@@ -155,7 +160,7 @@ impl Pattern for AttrKey {
 pub struct Spaces(usize);
 
 impl Pattern for Spaces {
-  fn matched(&mut self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
     let mut result: Vec<char> = Vec::with_capacity(2);
     for ch in chars {
       if ch.is_ascii_whitespace() {
@@ -167,6 +172,7 @@ impl Pattern for Spaces {
     if result.len() >= self.0 {
       return Some(MatchedData {
         chars: result,
+        name: "spaces",
         ..Default::default()
       });
     }
@@ -192,10 +198,10 @@ impl Pattern for Spaces {
 
 /// Index
 #[derive(Debug, Default)]
-pub struct Index(usize);
+pub struct Index;
 
 impl Pattern for Index {
-  fn matched(&mut self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
     let first = chars[0];
     let mut result = Vec::with_capacity(2);
     let numbers = '0'..'9';
@@ -208,12 +214,10 @@ impl Pattern for Index {
           }
         }
       }
-      let mut data = HashMap::with_capacity(1);
-      data.insert("index", to_static_str(result.iter().collect::<String>()));
       return Some(MatchedData {
         chars: result,
         name: "index",
-        data,
+        ..Default::default()
       });
     }
     None
@@ -229,12 +233,35 @@ impl Pattern for Index {
 pub struct Nth;
 
 impl Pattern for Nth {
-  fn matched(&mut self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
     let mut rule: RegExp = RegExp {
       cache: true,
       context: r#"^\s*(?:([-+])?([0-9]|[1-9]\d+)n\s*([+-])\s*)?([0-9]|[1-9]\d+)"#,
     };
-    if let Some(v) = Pattern::matched(&mut rule, chars) {}
+    if let Some(v) = Pattern::matched(&mut rule, chars) {
+      let rule_data = v.data;
+      let mut index = *rule_data.get("4").expect("the nth's rule must matched.");
+      let mut data = HashMap::with_capacity(2);
+      if let Some(&n) = rule_data.get("2") {
+        let mut n = n;
+        let op_index = *rule_data.get("3").unwrap();
+        if op_index == "-" {
+          index = to_static_str(String::from("-") + index);
+        }
+        if let Some(&op_n) = rule_data.get("1") {
+          if op_n == "-" {
+            n = to_static_str(String::from("-") + n);
+          }
+        }
+        data.insert("n", n);
+      }
+      data.insert("index", index);
+      return Some(MatchedData {
+        name: "nth",
+        data,
+        ..Default::default()
+      });
+    }
     None
   }
   //
@@ -251,7 +278,7 @@ pub struct RegExp<'a> {
 }
 
 impl<'a> Pattern for RegExp<'a> {
-  fn matched(&mut self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
     let Self { context, cache } = *self;
     let content = to_static_str(chars.iter().collect::<String>());
     let rule = RegExp::get_rule(context, cache);
@@ -327,6 +354,7 @@ pub(crate) fn init() {
   add_pattern("spaces", Box::new(Spaces::from_params));
   add_pattern("attr_key", Box::new(AttrKey::from_params));
   add_pattern("index", Box::new(Index::from_params));
+  add_pattern("nth", Box::new(Nth::from_params));
   add_pattern("regexp", Box::new(RegExp::from_params));
 }
 
@@ -338,7 +366,7 @@ pub fn to_pattern(name: &str, s: &str, p: &str) -> Result<Box<dyn Pattern>, Stri
   no_implemented(name);
 }
 
-pub fn exec(queues: &mut [Box<dyn Pattern>], query: &str) -> (Vec<MatchedData>, usize, bool) {
+pub fn exec(queues: &[Box<dyn Pattern>], query: &str) -> (Vec<MatchedData>, usize, bool) {
   let chars: Vec<char> = query.chars().collect();
   let mut start_index = 0;
   let mut result: Vec<MatchedData> = Vec::with_capacity(queues.len());

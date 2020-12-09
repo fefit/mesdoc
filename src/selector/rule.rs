@@ -1,12 +1,17 @@
+use std::collections::HashMap;
+
 use crate::selector::interface::{NodeListTrait, NodeTrait};
 use crate::selector::pattern::{self, exec, to_pattern, Pattern};
 use crate::utils::vec_char_to_clean_str;
 
-#[derive(Debug)]
-pub struct Rule {
-  pub queues: Vec<Box<dyn Pattern>>,
+pub struct Rule<'a, T> {
+  queues: Vec<Box<dyn Pattern>>,
+  handle: Option<Handle<T>>,
+  data_handle: Option<DataHandle<'a>>,
 }
-
+type MatchedDataMap = HashMap<&'static str, &'static str>;
+pub type Handle<T> = Box<dyn Fn(MatchedDataMap, T) -> Result<T, String>>;
+pub type DataHandle<'a> = Box<dyn Fn(Vec<MatchedDataMap>) -> MatchedDataMap + 'a>;
 // get char vec
 const DEF_SIZE: usize = 2;
 fn get_char_vec() -> Vec<char> {
@@ -55,7 +60,7 @@ impl MatchedStore {
   }
 }
 
-impl From<&str> for Rule {
+impl<'a, T> From<&str> for Rule<'a, T> {
   /// generate a rule from string.
   fn from(content: &str) -> Self {
     const ANCHOR_CHAR: char = '\0';
@@ -196,13 +201,34 @@ impl From<&str> for Rule {
     if !raw_chars.is_empty() {
       queues.push(Box::new(raw_chars));
     }
-    Rule { queues }
+    Rule {
+      queues,
+      handle: None,
+      data_handle: None,
+    }
   }
 }
 
-impl Rule {
+impl<'a, T: NodeListTrait> Rule<'a, T>
+where
+  T: NodeListTrait,
+{
   pub fn exec(&mut self, query: &str) {
-    let (result, matched_len, _) = exec(&mut self.queues, query);
+    let (result, matched_len, _) = exec(&self.queues, query);
+    println!("result is ==> {:?}", result);
+  }
+  pub fn set_handle<'b>(&mut self, fields: &'b [&'static str], handle: Handle<T>) -> &mut Self
+  where
+    'a: 'b,
+  {
+    let data_handle = Box::new(|data: Vec<MatchedDataMap>| -> MatchedDataMap {
+      let mut result = HashMap::with_capacity(5);
+      for v in fields {}
+      result
+    });
+    self.data_handle = Some(data_handle);
+    self.handle = Some(handle);
+    self
   }
 }
 
