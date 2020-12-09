@@ -1,9 +1,10 @@
-use crate::parser::matched::{to_matched, Matched};
+use crate::selector::interface::{NodeListTrait, NodeTrait};
+use crate::selector::pattern::{self, exec, to_pattern, Pattern};
 use crate::utils::vec_char_to_clean_str;
 
 #[derive(Debug)]
 pub struct Rule {
-  pub queues: Vec<Box<dyn Matched>>,
+  pub queues: Vec<Box<dyn Pattern>>,
 }
 
 // get char vec
@@ -43,14 +44,14 @@ impl Default for MatchedStore {
   }
 }
 impl MatchedStore {
-  fn next(&mut self) -> Result<Box<dyn Matched>, String> {
+  fn next(&mut self) -> Result<Box<dyn Pattern>, String> {
     self.hashs_num = 0;
     self.is_in_matched = false;
     self.is_wait_end = false;
     let name = vec_char_to_clean_str(&mut self.names);
     let s = vec_char_to_clean_str(&mut self.suf_params);
     let r = vec_char_to_clean_str(&mut self.raw_params);
-    to_matched(name, s, r)
+    to_pattern(name, s, r)
   }
 }
 
@@ -63,7 +64,7 @@ impl From<&str> for Rule {
     let mut prev_char = ANCHOR_CHAR;
     let mut store: MatchedStore = Default::default();
     let mut raw_chars = get_char_vec();
-    let mut queues: Vec<Box<dyn Matched>> = Vec::with_capacity(DEF_SIZE);
+    let mut queues: Vec<Box<dyn Pattern>> = Vec::with_capacity(DEF_SIZE);
     let mut is_matched_finish = false;
     let mut index: usize = 0;
     for ch in content.chars() {
@@ -82,7 +83,7 @@ impl From<&str> for Rule {
           is_matched_finish = true;
         } else {
           panic!(
-            "Unexpect end of Matched type '{}' at index {}, expect '{}' but found '{}'",
+            "Unexpect end of Pattern type '{}' at index {}, expect '{}' but found '{}'",
             vec_char_to_clean_str(&mut store.names),
             index - 1,
             END_CHAR,
@@ -108,7 +109,7 @@ impl From<&str> for Rule {
           }
         } else if prev_char == END_CHAR {
           if is_prev_matched_finish {
-            // is just end of the Matched type.
+            // is just end of the Pattern type.
             raw_chars.push(ch);
           } else if ch == END_CHAR {
             // translate end char '}'
@@ -122,7 +123,7 @@ impl From<&str> for Rule {
           raw_chars.push(ch);
         }
       } else if !store.raw_params.is_empty() {
-        // in Matched's raw params ##gfh#def##
+        // in Pattern's raw params ##gfh#def##
         if ch == '#' {
           let leave_count = store.hashs_num - 1;
           if leave_count == 0 {
@@ -199,4 +200,12 @@ impl From<&str> for Rule {
   }
 }
 
-impl Rule {}
+impl Rule {
+  pub fn exec(&mut self, query: &str) {
+    let (result, matched_len, _) = exec(&mut self.queues, query);
+  }
+}
+
+pub fn init() {
+  pattern::init();
+}
