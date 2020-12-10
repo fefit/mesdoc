@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
 use crate::selector::interface::{NodeListTrait, NodeTrait};
-use crate::selector::pattern::{self, exec, to_pattern, Pattern};
-use crate::utils::vec_char_to_clean_str;
+use crate::selector::pattern::{self, exec, to_pattern, Matched, MatchedData, Pattern};
+use crate::utils::{to_static_str, vec_char_to_clean_str};
 
-pub struct Rule<'a, T> {
+pub struct Rule<T: NodeListTrait> {
   queues: Vec<Box<dyn Pattern>>,
   handle: Option<Handle<T>>,
-  data_handle: Option<DataHandle<'a>>,
+  data_handle: Option<DataHandle>,
 }
-type MatchedDataMap = HashMap<&'static str, &'static str>;
-pub type Handle<T> = Box<dyn Fn(MatchedDataMap, T) -> Result<T, String>>;
-pub type DataHandle<'a> = Box<dyn Fn(Vec<MatchedDataMap>) -> MatchedDataMap + 'a>;
+pub type DataKey = (&'static str, usize);
+pub type Handle<T> = Box<dyn Fn(MatchedData, T) -> Result<T, String>>;
+pub type DataHandle = Box<dyn Fn(Vec<Matched>) -> MatchedData>;
 // get char vec
 const DEF_SIZE: usize = 2;
 fn get_char_vec() -> Vec<char> {
@@ -60,7 +60,10 @@ impl MatchedStore {
   }
 }
 
-impl<'a, T> From<&str> for Rule<'a, T> {
+impl<T> From<&str> for Rule<T>
+where
+  T: NodeListTrait,
+{
   /// generate a rule from string.
   fn from(content: &str) -> Self {
     const ANCHOR_CHAR: char = '\0';
@@ -209,7 +212,7 @@ impl<'a, T> From<&str> for Rule<'a, T> {
   }
 }
 
-impl<'a, T: NodeListTrait> Rule<'a, T>
+impl<T: NodeListTrait> Rule<T>
 where
   T: NodeListTrait,
 {
@@ -217,13 +220,26 @@ where
     let (result, matched_len, _) = exec(&self.queues, query);
     println!("result is ==> {:?}", result);
   }
-  pub fn set_handle<'b>(&mut self, fields: &'b [&'static str], handle: Handle<T>) -> &mut Self
-  where
-    'a: 'b,
-  {
-    let data_handle = Box::new(|data: Vec<MatchedDataMap>| -> MatchedDataMap {
+  pub fn set_handle(&mut self, fields: Vec<DataKey>, handle: Handle<T>) -> &mut Self {
+    let data_handle = Box::new(move |data: Vec<Matched>| -> MatchedData {
       let mut result = HashMap::with_capacity(5);
-      for v in fields {}
+      let mut indexs: HashMap<&'static str, usize> = HashMap::with_capacity(fields.len());
+      for item in data.iter() {
+        let Matched {
+          name,
+          data: hash_data,
+          ..
+        } = item;
+        if !name.is_empty() {
+          let index = indexs.entry(name).or_insert(0);
+          if fields.contains(&(name, *index)) {
+            for (&key, &val) in hash_data.iter() {
+              let cur_key = format!("{}-{}-{}", name, *index, key);
+              result.insert(to_static_str(cur_key), val);
+            }
+          }
+        }
+      }
       result
     });
     self.data_handle = Some(data_handle);

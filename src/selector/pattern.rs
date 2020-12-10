@@ -21,14 +21,15 @@ fn no_implemented(name: &str) -> ! {
   panic!("No supported Pattern type '{}' found", name);
 }
 
+pub type MatchedData = HashMap<&'static str, &'static str>;
 #[derive(Debug, Default)]
-pub struct MatchedData {
+pub struct Matched {
   pub chars: Vec<char>,
   pub name: &'static str,
-  pub data: HashMap<&'static str, &'static str>,
+  pub data: MatchedData,
 }
 pub trait Pattern: Send + Debug {
-  fn matched(&self, chars: &[char]) -> Option<MatchedData>;
+  fn matched(&self, chars: &[char]) -> Option<Matched>;
   // get a pattern trait object
   fn from_params(s: &str, _p: &str) -> Result<Box<dyn Pattern>, String>
   where
@@ -39,9 +40,9 @@ pub trait Pattern: Send + Debug {
 }
 
 impl Pattern for char {
-  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<Matched> {
     if *self == chars[0] {
-      return Some(MatchedData {
+      return Some(Matched {
         chars: vec![*self],
         ..Default::default()
       });
@@ -51,7 +52,7 @@ impl Pattern for char {
 }
 
 impl Pattern for &[char] {
-  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<Matched> {
     let total = self.len();
     if total > chars.len() {
       return None;
@@ -65,7 +66,7 @@ impl Pattern for &[char] {
         return None;
       }
     }
-    Some(MatchedData {
+    Some(Matched {
       chars: result,
       ..Default::default()
     })
@@ -73,7 +74,7 @@ impl Pattern for &[char] {
 }
 
 impl Pattern for Vec<char> {
-  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<Matched> {
     self.as_slice().matched(chars)
   }
 }
@@ -82,14 +83,14 @@ impl Pattern for Vec<char> {
 pub struct Identity(bool);
 
 impl Pattern for Identity {
-  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<Matched> {
     let mut result: Vec<char> = Vec::with_capacity(5);
     let first = chars[0];
     let name: &str = "identity";
     if !(first.is_ascii_alphabetic() || first == '_') {
       if self.0 {
         // optional
-        return Some(MatchedData {
+        return Some(Matched {
           name,
           ..Default::default()
         });
@@ -103,7 +104,7 @@ impl Pattern for Identity {
         break;
       }
     }
-    Some(MatchedData {
+    Some(Matched {
       chars: result,
       name,
       ..Default::default()
@@ -123,7 +124,7 @@ impl Pattern for Identity {
 pub struct AttrKey;
 
 impl Pattern for AttrKey {
-  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<Matched> {
     let mut identity = Identity::default();
     let mut start_index: usize = 0;
     let mut result = Vec::with_capacity(5);
@@ -142,7 +143,7 @@ impl Pattern for AttrKey {
       }
     }
     if !result.is_empty() {
-      return Some(MatchedData {
+      return Some(Matched {
         chars: result,
         name: "attr_key",
         ..Default::default()
@@ -160,7 +161,7 @@ impl Pattern for AttrKey {
 pub struct Spaces(usize);
 
 impl Pattern for Spaces {
-  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<Matched> {
     let mut result: Vec<char> = Vec::with_capacity(2);
     for ch in chars {
       if ch.is_ascii_whitespace() {
@@ -170,7 +171,7 @@ impl Pattern for Spaces {
       }
     }
     if result.len() >= self.0 {
-      return Some(MatchedData {
+      return Some(Matched {
         chars: result,
         name: "spaces",
         ..Default::default()
@@ -201,7 +202,7 @@ impl Pattern for Spaces {
 pub struct Index;
 
 impl Pattern for Index {
-  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<Matched> {
     let first = chars[0];
     let mut result = Vec::with_capacity(2);
     let numbers = '0'..'9';
@@ -214,7 +215,7 @@ impl Pattern for Index {
           }
         }
       }
-      return Some(MatchedData {
+      return Some(Matched {
         chars: result,
         name: "index",
         ..Default::default()
@@ -233,7 +234,7 @@ impl Pattern for Index {
 pub struct Nth;
 
 impl Pattern for Nth {
-  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<Matched> {
     let mut rule: RegExp = RegExp {
       cache: true,
       context: r#"^\s*(?:([-+])?([0-9]|[1-9]\d+)n\s*([+-])\s*)?([0-9]|[1-9]\d+)"#,
@@ -256,7 +257,7 @@ impl Pattern for Nth {
         data.insert("n", n);
       }
       data.insert("index", index);
-      return Some(MatchedData {
+      return Some(Matched {
         name: "nth",
         data,
         ..Default::default()
@@ -278,7 +279,7 @@ pub struct RegExp<'a> {
 }
 
 impl<'a> Pattern for RegExp<'a> {
-  fn matched(&self, chars: &[char]) -> Option<MatchedData> {
+  fn matched(&self, chars: &[char]) -> Option<Matched> {
     let Self { context, cache } = *self;
     let content = to_static_str(chars.iter().collect::<String>());
     let rule = RegExp::get_rule(context, cache);
@@ -291,7 +292,7 @@ impl<'a> Pattern for RegExp<'a> {
         }
       }
       let result = chars[..total_len].to_vec();
-      return Some(MatchedData {
+      return Some(Matched {
         chars: result,
         name: "regexp",
         data,
@@ -366,10 +367,10 @@ pub fn to_pattern(name: &str, s: &str, p: &str) -> Result<Box<dyn Pattern>, Stri
   no_implemented(name);
 }
 
-pub fn exec(queues: &[Box<dyn Pattern>], query: &str) -> (Vec<MatchedData>, usize, bool) {
+pub fn exec(queues: &[Box<dyn Pattern>], query: &str) -> (Vec<Matched>, usize, bool) {
   let chars: Vec<char> = query.chars().collect();
   let mut start_index = 0;
-  let mut result: Vec<MatchedData> = Vec::with_capacity(queues.len());
+  let mut result: Vec<Matched> = Vec::with_capacity(queues.len());
   for item in queues {
     if let Some(matched) = item.matched(&chars[start_index..]) {
       start_index += matched.chars.len();
