@@ -1,17 +1,45 @@
 use std::collections::HashMap;
 
-use crate::selector::interface::{NodeListTrait, NodeTrait};
-use crate::selector::pattern::{self, exec, to_pattern, Matched, MatchedData, Pattern};
+use crate::selector::interface::{NodeList, Result as NResult};
+use crate::selector::pattern::{self, exec, to_pattern, Matched, Pattern};
 use crate::utils::{to_static_str, vec_char_to_clean_str};
 
-pub struct Rule<T: NodeListTrait> {
-  queues: Vec<Box<dyn Pattern>>,
-  handle: Option<Handle<T>>,
-  data_handle: Option<DataHandle>,
+pub struct Rule {
+  pub queues: Vec<Box<dyn Pattern>>,
+  fields: Vec<DataKey>,
+  handle: Option<Handle>,
 }
+
+#[derive(Debug, Hash, Eq, PartialEq)]
+pub struct DataSaveKey(&'static str, usize, &'static str);
 pub type DataKey = (&'static str, usize);
-pub type Handle<T> = Box<dyn Fn(MatchedData, T) -> Result<T, String>>;
-pub type DataHandle = Box<dyn Fn(Vec<Matched>) -> MatchedData>;
+
+impl From<(&'static str,)> for DataSaveKey {
+  fn from(t: (&'static str,)) -> Self {
+    DataSaveKey(t.0, 0, "_")
+  }
+}
+
+impl From<(&'static str, usize)> for DataSaveKey {
+  fn from(t: (&'static str, usize)) -> Self {
+    DataSaveKey(t.0, t.1, "_")
+  }
+}
+
+impl From<(&'static str, usize, &'static str)> for DataSaveKey {
+  fn from(t: (&'static str, usize, &'static str)) -> Self {
+    DataSaveKey(t.0, t.1, t.2)
+  }
+}
+
+impl From<&'static str> for DataSaveKey {
+  fn from(s: &'static str) -> Self {
+    (s,).into()
+  }
+}
+
+pub type RuleMatchedData = HashMap<DataSaveKey, &'static str>;
+pub type Handle = Box<dyn Fn(RuleMatchedData, usize) -> Box<dyn Fn(NodeList) -> NResult>>;
 // get char vec
 const DEF_SIZE: usize = 2;
 fn get_char_vec() -> Vec<char> {
@@ -60,10 +88,7 @@ impl MatchedStore {
   }
 }
 
-impl<T> From<&str> for Rule<T>
-where
-  T: NodeListTrait,
-{
+impl From<&str> for Rule {
   /// generate a rule from string.
   fn from(content: &str) -> Self {
     const ANCHOR_CHAR: char = '\0';
@@ -206,48 +231,85 @@ where
     }
     Rule {
       queues,
+      fields: Vec::with_capacity(3),
       handle: None,
-      data_handle: None,
     }
   }
 }
 
-impl<T: NodeListTrait> Rule<T>
-where
-  T: NodeListTrait,
-{
-  pub fn exec(&mut self, query: &str) {
+impl Rule {
+  pub fn exec(&self, query: &str) -> Box<dyn Fn(NodeList) -> NResult> {
     let (result, matched_len, _) = exec(&self.queues, query);
-    println!("result is ==> {:?}", result);
+    let handle = self
+      .handle
+      .as_ref()
+      .expect("The rule's handle must set before call `exec`,you should use `set_params` to set the handle.");
+    handle(self.data(result), matched_len)
   }
-  pub fn set_handle(&mut self, fields: Vec<DataKey>, handle: Handle<T>) -> &mut Self {
-    let data_handle = Box::new(move |data: Vec<Matched>| -> MatchedData {
-      let mut result = HashMap::with_capacity(5);
-      let mut indexs: HashMap<&'static str, usize> = HashMap::with_capacity(fields.len());
-      for item in data.iter() {
-        let Matched {
-          name,
-          data: hash_data,
-          ..
-        } = item;
-        if !name.is_empty() {
-          let index = indexs.entry(name).or_insert(0);
-          if fields.contains(&(name, *index)) {
+  pub fn data(&self, data: Vec<Matched>) -> RuleMatchedData {
+    let mut result: RuleMatchedData = HashMap::with_capacity(5);
+    let mut indexs = HashMap::with_capacity(5);
+    let fields = &self.fields;
+    println!("data ===>{:?}", data);
+    for item in data.iter() {
+      let Matched {
+        name,
+        data: hash_data,
+        chars,
+      } = item;
+      if !name.is_empty() {
+        let index = indexs.entry(name).or_insert(0);
+        let data_key = (*name, *index);
+        if fields.contains(&data_key) {
+          let count = hash_data.len();
+          if count == 0 {
+            let cur_key = (*name, *index);
+            result.insert(
+              cur_key.into(),
+              to_static_str(chars.iter().collect::<String>()),
+            );
+          } else {
             for (&key, &val) in hash_data.iter() {
-              let cur_key = format!("{}-{}-{}", name, *index, key);
-              result.insert(to_static_str(cur_key), val);
+              let cur_key = (*name, *index, key);
+              result.insert(cur_key.into(), val);
             }
           }
         }
       }
-      result
-    });
-    self.data_handle = Some(data_handle);
-    self.handle = Some(handle);
-    self
+    }
+    result
+  }
+  // set the data fields need to collect
+  pub fn set_params(this: &mut Self, fields: Vec<DataKey>, handle: Handle) -> &mut Self {
+    if !this.fields.is_empty() {
+      panic!("The rule's `set_params` can only call once");
+    }
+    this.fields = fields;
+    this.handle = Some(handle);
+    this
+  }
+  // add a rule
+  pub fn add(context: &str, fields: Vec<DataKey>, handle: Handle) -> Self {
+    let mut rule: Rule = context.into();
+    Rule::set_params(&mut rule, fields, handle);
+    rule
+  }
+  //
+  pub fn param<T: Into<DataSaveKey>>(params: &RuleMatchedData, v: T) -> Option<&str> {
+    params.get(&v.into()).copied()
   }
 }
 
 pub fn init() {
   pattern::init();
+  let rule = Rule::add(
+    "#{identity}",
+    vec![("identity", 0)],
+    Box::new(|data, length| {
+      println!("data, {:?}", data);
+      println!("identity:{:?}", Rule::param(&data, "identity"));
+      return Box::new(|nodes| Ok(nodes));
+    }),
+  );
+  rule.exec("#aaa");
 }
