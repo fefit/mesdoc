@@ -1,45 +1,49 @@
 use std::collections::HashMap;
 
-use crate::selector::interface::{NodeList, Result as NResult};
-use crate::selector::pattern::{self, exec, to_pattern, Matched, Pattern};
+use super::interface::{NodeList, Result as NResult};
+use super::pattern::{self, exec, to_pattern, Matched, Pattern};
 use crate::utils::{to_static_str, vec_char_to_clean_str};
-
+use lazy_static::lazy_static;
+use std::sync::Mutex;
+lazy_static! {
+  pub static ref RULES: Mutex<Vec<Rule>> = Mutex::new(Vec::with_capacity(20));
+}
 pub struct Rule {
-  pub queues: Vec<Box<dyn Pattern>>,
+  queues: Vec<Box<dyn Pattern>>,
   fields: Vec<DataKey>,
   handle: Option<Handle>,
 }
 
 #[derive(Debug, Hash, Eq, PartialEq)]
-pub struct DataSaveKey(&'static str, usize, &'static str);
+pub struct SavedDataKey(&'static str, usize, &'static str);
 pub type DataKey = (&'static str, usize);
 
-impl From<(&'static str,)> for DataSaveKey {
+impl From<(&'static str,)> for SavedDataKey {
   fn from(t: (&'static str,)) -> Self {
-    DataSaveKey(t.0, 0, "_")
+    SavedDataKey(t.0, 0, "_")
   }
 }
 
-impl From<(&'static str, usize)> for DataSaveKey {
+impl From<(&'static str, usize)> for SavedDataKey {
   fn from(t: (&'static str, usize)) -> Self {
-    DataSaveKey(t.0, t.1, "_")
+    SavedDataKey(t.0, t.1, "_")
   }
 }
 
-impl From<(&'static str, usize, &'static str)> for DataSaveKey {
+impl From<(&'static str, usize, &'static str)> for SavedDataKey {
   fn from(t: (&'static str, usize, &'static str)) -> Self {
-    DataSaveKey(t.0, t.1, t.2)
+    SavedDataKey(t.0, t.1, t.2)
   }
 }
 
-impl From<&'static str> for DataSaveKey {
+impl From<&'static str> for SavedDataKey {
   fn from(s: &'static str) -> Self {
     (s,).into()
   }
 }
 
-pub type RuleMatchedData = HashMap<DataSaveKey, &'static str>;
-pub type Handle = Box<dyn Fn(RuleMatchedData, usize) -> Box<dyn Fn(NodeList) -> NResult>>;
+pub type RuleMatchedData = HashMap<SavedDataKey, &'static str>;
+pub type Handle = Box<dyn (Fn(NodeList, RuleMatchedData, usize) -> NResult) + Send>;
 // get char vec
 const DEF_SIZE: usize = 2;
 fn get_char_vec() -> Vec<char> {
@@ -238,13 +242,13 @@ impl From<&str> for Rule {
 }
 
 impl Rule {
-  pub fn exec(&self, query: &str) -> Box<dyn Fn(NodeList) -> NResult> {
+  pub fn exec<'a>(&'a self, node_list: NodeList<'a>, query: &str) -> NResult {
     let (result, matched_len, _) = exec(&self.queues, query);
     let handle = self
       .handle
       .as_ref()
       .expect("The rule's handle must set before call `exec`,you should use `set_params` to set the handle.");
-    handle(self.data(result), matched_len)
+    handle(node_list, self.data(result), matched_len)
   }
   pub fn data(&self, data: Vec<Matched>) -> RuleMatchedData {
     let mut result: RuleMatchedData = HashMap::with_capacity(5);
@@ -294,9 +298,17 @@ impl Rule {
     Rule::set_params(&mut rule, fields, handle);
     rule
   }
-  //
-  pub fn param<T: Into<DataSaveKey>>(params: &RuleMatchedData, v: T) -> Option<&str> {
+  // quick method to get param
+  pub fn param<T: Into<SavedDataKey>>(params: &RuleMatchedData, v: T) -> Option<&str> {
     params.get(&v.into()).copied()
+  }
+}
+
+pub fn add_rules(rules: Vec<(&str, Vec<DataKey>, Handle)>) {
+  let mut all_rules = RULES.lock().unwrap();
+  for (context, fields, handle) in rules {
+    let cur_rule = Rule::add(context, fields, handle);
+    all_rules.push(cur_rule);
   }
 }
 
@@ -305,11 +317,10 @@ pub fn init() {
   let rule = Rule::add(
     "#{identity}",
     vec![("identity", 0)],
-    Box::new(|data, length| {
-      println!("data, {:?}", data);
-      println!("identity:{:?}", Rule::param(&data, "identity"));
-      return Box::new(|nodes| Ok(nodes));
+    Box::new(|nodes, data, length| {
+      let id = Rule::param(&data, "identity").expect("The identity's id must set.");
+      Ok(nodes)
     }),
   );
-  rule.exec("#aaa");
+  rule.exec(NodeList::new(), "#aaa");
 }

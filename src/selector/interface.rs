@@ -30,8 +30,9 @@ impl<'a> NodeList<'a> {
     RRC<T>: NodeTrait,
   {
     let mut nodes: Vec<BoxDynNode> = Vec::with_capacity(v.len());
-    v.iter()
-      .map(|v| nodes.push(Box::new(Rc::clone(v)) as BoxDynNode<'a>));
+    for item in v.iter() {
+      nodes.push(Box::new(Rc::clone(item)) as BoxDynNode<'a>)
+    }
     nodes.into()
   }
 }
@@ -54,7 +55,7 @@ impl<'a> From<Vec<BoxDynNode<'a>>> for NodeList<'a> {
 }
 impl NodeTrait for Rc<RefCell<Node>> {
   fn parent(&self) -> Result {
-    let mut result = NodeList::from_rrc_slice(&self.borrow().children);
+    let result = NodeList::from_rrc_slice(&self.borrow().children);
     Ok(result)
   }
 }
