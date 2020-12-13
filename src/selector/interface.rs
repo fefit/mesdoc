@@ -5,7 +5,20 @@ pub type Result<'a> = OResult<NodeList<'a>, &'static str>;
 pub type BoxDynNode<'a> = Box<dyn NodeTrait + 'a>;
 type RRC<T> = Rc<RefCell<T>>;
 pub trait NodeTrait {
+  // find parents
   fn parent(&self) -> Result;
+  fn children(&self) -> Result;
+  // attribute
+  fn get_attribute(&self) -> &str;
+  fn set_attribute(&mut self);
+  fn has_attribute(&self) -> bool;
+  // html/text
+  fn html(&self) -> &str;
+  fn inner_html(&self) -> &str;
+  fn text_content(&self) -> &str;
+  // node
+  fn append_child(&mut self);
+  fn remove_child(&mut self, node: BoxDynNode);
 }
 
 #[derive(Default)]
@@ -52,22 +65,4 @@ impl<'a> From<Vec<BoxDynNode<'a>>> for NodeList<'a> {
   fn from(nodes: Vec<BoxDynNode<'a>>) -> Self {
     NodeList { nodes }
   }
-}
-impl NodeTrait for Rc<RefCell<Node>> {
-  fn parent(&self) -> Result {
-    let result = NodeList::from_rrc_slice(&self.borrow().children);
-    Ok(result)
-  }
-}
-
-pub fn init() {
-  let node1 = Node {
-    parent: Weak::new(),
-    children: Vec::new(),
-  };
-  let node2 = Node {
-    parent: Weak::new(),
-    children: vec![Rc::new(RefCell::new(node1))],
-  };
-  let result = node2.children[0].parent();
 }
