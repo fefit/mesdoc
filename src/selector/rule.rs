@@ -314,13 +314,4 @@ pub fn add_rules(rules: Vec<(&str, Vec<DataKey>, Handle)>) {
 
 pub fn init() {
   pattern::init();
-  let rule = Rule::add(
-    "#{identity}",
-    vec![("identity", 0)],
-    Box::new(|nodes, data, length| {
-      let id = Rule::param(&data, "identity").expect("The identity's id must set.");
-      Ok(nodes)
-    }),
-  );
-  rule.exec(NodeList::new(), "#aaa");
 }

@@ -1,4 +1,8 @@
 pub mod interface;
 pub mod pattern;
 pub mod rule;
-pub mod selector;
+
+use rule::{Rule, RULES};
+pub struct Selector {}
+
+impl Selector {}

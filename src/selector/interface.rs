@@ -3,15 +3,24 @@ use std::rc::{Rc, Weak};
 use std::result::Result as OResult;
 pub type Result<'a> = OResult<NodeList<'a>, &'static str>;
 pub type BoxDynNode<'a> = Box<dyn NodeTrait + 'a>;
+pub enum AttrValue {
+  Value(&'static str),
+  Flag(bool),
+  Number(f64),
+}
 type RRC<T> = Rc<RefCell<T>>;
 pub trait NodeTrait {
+  // tag name
+  fn tag_name(&self) -> &str;
   // find parents
   fn parent(&self) -> Result;
   fn children(&self) -> Result;
   // attribute
-  fn get_attribute(&self) -> &str;
-  fn set_attribute(&mut self);
-  fn has_attribute(&self) -> bool;
+  fn get_attribute(&self, name: &str) -> Option<AttrValue>;
+  fn set_attribute(&mut self, value: AttrValue);
+  fn has_attribute(&self, name: &str) -> bool {
+    self.get_attribute(name).is_some()
+  }
   // html/text
   fn html(&self) -> &str;
   fn inner_html(&self) -> &str;

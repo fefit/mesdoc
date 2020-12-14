@@ -5,7 +5,7 @@
 * class: .{identity}
 * attribute: [{identity}{rule##"(^|*~$)?=('")"##}]
 */
-use crate::utils::{chars_to_int, to_static_str};
+use crate::utils::{chars_to_int, is_char_available_in_key, to_static_str};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::sync::{Arc, Mutex};
@@ -125,21 +125,12 @@ pub struct AttrKey;
 
 impl Pattern for AttrKey {
   fn matched(&self, chars: &[char]) -> Option<Matched> {
-    let mut identity = Identity::default();
-    let mut start_index: usize = 0;
     let mut result = Vec::with_capacity(5);
-    let total_chars = chars.len();
-    while let Some(matched) = Pattern::matched(&mut identity, &chars[start_index..]) {
-      let matched_chars = matched.chars;
-      let count = matched_chars.len();
-      let next_index = count + start_index;
-      result.extend(matched_chars);
-      if total_chars > next_index {
-        let next = chars[next_index];
-        if next == '.' || next == ':' {
-          result.push(next);
-          start_index = next_index + 1;
-        }
+    for ch in chars {
+      if is_char_available_in_key(ch) {
+        result.push(*ch);
+      } else {
+        break;
       }
     }
     if !result.is_empty() {
@@ -185,9 +176,8 @@ impl Pattern for Spaces {
       return Err(format!("Spaces not support param '{}'", p));
     }
     if !s.trim().is_empty() {
-      let mut rule: [Box<dyn Pattern>; 3] =
-        [Box::new('('), Box::new(Index::default()), Box::new(')')];
-      let (result, _, match_all) = exec(&mut rule, s);
+      let rule: [Box<dyn Pattern>; 3] = [Box::new('('), Box::new(Index::default()), Box::new(')')];
+      let (result, _, match_all) = exec(&rule, s);
       if !match_all {
         return Err(format!("Wrong 'Spaces{}'", s));
       }
@@ -235,11 +225,11 @@ pub struct Nth;
 
 impl Pattern for Nth {
   fn matched(&self, chars: &[char]) -> Option<Matched> {
-    let mut rule: RegExp = RegExp {
+    let rule: RegExp = RegExp {
       cache: true,
       context: r#"^\s*(?:([-+])?([0-9]|[1-9]\d+)n\s*([+-])\s*)?([0-9]|[1-9]\d+)"#,
     };
-    if let Some(v) = Pattern::matched(&mut rule, chars) {
+    if let Some(v) = Pattern::matched(&rule, chars) {
       let rule_data = v.data;
       let mut index = *rule_data.get("4").expect("the nth's rule must matched.");
       let mut data = HashMap::with_capacity(2);
