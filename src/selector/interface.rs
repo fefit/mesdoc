@@ -1,15 +1,16 @@
 use std::cell::RefCell;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 use std::result::Result as OResult;
 pub type Result<'a> = OResult<NodeList<'a>, &'static str>;
 pub type BoxDynNode<'a> = Box<dyn NodeTrait + 'a>;
 pub enum AttrValue {
   Value(&'static str),
   Flag(bool),
-  Number(f64),
 }
 type RRC<T> = Rc<RefCell<T>>;
 pub trait NodeTrait {
+  // clone a node
+  fn cloned(&self) -> Box<dyn NodeTrait>;
   // tag name
   fn tag_name(&self) -> &str;
   // find parents
@@ -64,10 +65,6 @@ impl<'a> IntoIterator for NodeList<'a> {
   fn into_iter(self) -> Self::IntoIter {
     Box::new(self.nodes.into_iter())
   }
-}
-pub struct Node {
-  pub parent: Weak<RefCell<Node>>,
-  pub children: Vec<Rc<RefCell<Node>>>,
 }
 
 impl<'a> From<Vec<BoxDynNode<'a>>> for NodeList<'a> {

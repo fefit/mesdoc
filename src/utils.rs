@@ -69,5 +69,8 @@ pub fn is_char_available_in_key(ch: &char) -> bool {
   if ch.is_ascii_whitespace() || ch.is_ascii_control() || is_non_character(ch) {
     return false;
   }
-  !matches!(ch, '\u{0000}' | '"' | '\'' | '>' | '/' | '=')
+  !matches!(
+    ch,
+    '\u{0000}' | '"' | '\'' | '>' | '/' | '=' | '^' | '~' | '|' | '*' | '$'
+  )
 }

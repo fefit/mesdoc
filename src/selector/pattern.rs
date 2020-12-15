@@ -317,6 +317,7 @@ impl<'a> RegExp<'a> {
       } else {
         let key = &to_static_str(last_context);
         let rule = Regex::new(key).expect(&wrong_regex);
+        println!("rule is ==={:?}", rule);
         let value = Arc::new(rule);
         let result = Arc::clone(&value);
         regexs.insert(key, value);

@@ -233,6 +233,7 @@ impl From<&str> for Rule {
     if !raw_chars.is_empty() {
       queues.push(Box::new(raw_chars));
     }
+    println!("queues:{:?}", queues);
     Rule {
       queues,
       fields: Vec::with_capacity(3),
@@ -304,7 +305,8 @@ impl Rule {
   }
 }
 
-pub fn add_rules(rules: Vec<(&str, Vec<DataKey>, Handle)>) {
+pub type RuleItem = (&'static str, Vec<DataKey>, Handle);
+pub fn add_rules(rules: Vec<RuleItem>) {
   let mut all_rules = RULES.lock().unwrap();
   for (context, fields, handle) in rules {
     let cur_rule = Rule::add(context, fields, handle);
@@ -312,6 +314,6 @@ pub fn add_rules(rules: Vec<(&str, Vec<DataKey>, Handle)>) {
   }
 }
 
-pub fn init() {
+pub(crate) fn init() {
   pattern::init();
 }
