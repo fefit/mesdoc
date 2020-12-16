@@ -5,7 +5,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
   let rule: RuleItem = (
     r##"[{spaces}{attr_key}{spaces}{regexp#([~|^$*]?)=\s*(?:"((?:\\?+.)*?)"|'((?:\\?+.)*?)'|([^\s'"<>/=`]+))#}{spaces}]"##,
     vec![("attr_key", 0), ("regexp", 0)],
-    Box::new(|nodes, params, _count| {
+    Box::new(|nodes, params| {
       let attr_key =
         Rule::param(&params, "attr_key").expect("The attribute selector's key is not correct");
       let attr_value = Rule::param(&params, ("regexp", 0, "2"))

@@ -43,7 +43,7 @@ impl From<&'static str> for SavedDataKey {
 }
 
 pub type RuleMatchedData = HashMap<SavedDataKey, &'static str>;
-pub type Handle = Box<dyn (Fn(NodeList, RuleMatchedData, usize) -> NResult) + Send>;
+pub type Handle = Box<dyn (Fn(NodeList, RuleMatchedData) -> NResult) + Send>;
 // get char vec
 const DEF_SIZE: usize = 2;
 fn get_char_vec() -> Vec<char> {
@@ -243,19 +243,25 @@ impl From<&str> for Rule {
 }
 
 impl Rule {
-  pub fn exec<'a>(&'a self, node_list: NodeList<'a>, query: &str) -> NResult {
+  pub fn exec<'a>(&'a self, query: &str) -> Option<Vec<Matched>> {
     let (result, matched_len, _) = exec(&self.queues, query);
+    if matched_len > 0 {
+      Some(result)
+    } else {
+      None
+    }
+  }
+  pub fn apply<'a>(&'a self, node_list: NodeList<'a>, matched: Vec<Matched>) -> NResult {
     let handle = self
       .handle
       .as_ref()
       .expect("The rule's handle must set before call `exec`,you should use `set_params` to set the handle.");
-    handle(node_list, self.data(result), matched_len)
+    handle(node_list, self.data(matched))
   }
   pub fn data(&self, data: Vec<Matched>) -> RuleMatchedData {
     let mut result: RuleMatchedData = HashMap::with_capacity(5);
     let mut indexs = HashMap::with_capacity(5);
     let fields = &self.fields;
-    println!("data ===>{:?}", data);
     for item in data.iter() {
       let Matched {
         name,
