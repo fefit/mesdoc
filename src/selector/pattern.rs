@@ -177,7 +177,8 @@ impl Pattern for Spaces {
     }
     if !s.trim().is_empty() {
       let rule: [Box<dyn Pattern>; 3] = [Box::new('('), Box::new(Index::default()), Box::new(')')];
-      let (result, _, match_all) = exec(&rule, s);
+      let chars: Vec<char> = s.chars().collect();
+      let (result, _, match_all) = exec(&rule, &chars);
       if !match_all {
         return Err(format!("Wrong 'Spaces{}'", s));
       }
@@ -358,8 +359,7 @@ pub fn to_pattern(name: &str, s: &str, p: &str) -> Result<Box<dyn Pattern>, Stri
   no_implemented(name);
 }
 
-pub fn exec(queues: &[Box<dyn Pattern>], query: &str) -> (Vec<Matched>, usize, bool) {
-  let chars: Vec<char> = query.chars().collect();
+pub fn exec(queues: &[Box<dyn Pattern>], chars: &[char]) -> (Vec<Matched>, usize, bool) {
   let mut start_index = 0;
   let mut result: Vec<Matched> = Vec::with_capacity(queues.len());
   for item in queues {

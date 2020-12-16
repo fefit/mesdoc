@@ -243,10 +243,10 @@ impl From<&str> for Rule {
 }
 
 impl Rule {
-  pub fn exec<'a>(&'a self, query: &str) -> Option<Vec<Matched>> {
-    let (result, matched_len, _) = exec(&self.queues, query);
+  pub fn exec<'a>(&'a self, chars: &[char]) -> Option<(Vec<Matched>, usize)> {
+    let (result, matched_len, _) = exec(&self.queues, chars);
     if matched_len > 0 {
-      Some(result)
+      Some((result, matched_len))
     } else {
       None
     }
