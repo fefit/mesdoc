@@ -42,9 +42,10 @@ pub trait Pattern: Send + Sync + Debug {
 
 impl Pattern for char {
   fn matched(&self, chars: &[char]) -> Option<Matched> {
-    if *self == chars[0] {
+    let ch = chars[0];
+    if *self == ch {
       return Some(Matched {
-        chars: vec![*self],
+        chars: vec![ch],
         ..Default::default()
       });
     }
