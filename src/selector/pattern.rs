@@ -17,6 +17,7 @@ lazy_static! {
   static ref REGEXS: Mutex<HashMap<&'static str, Arc<Regex>>> = Mutex::new(HashMap::new());
   static ref PATTERNS: Mutex<HashMap<&'static str, FromParamsFn>> = Mutex::new(HashMap::new());
 }
+
 fn no_implemented(name: &str) -> ! {
   panic!("No supported Pattern type '{}' found", name);
 }
@@ -28,7 +29,7 @@ pub struct Matched {
   pub name: &'static str,
   pub data: MatchedData,
 }
-pub trait Pattern: Send + Debug {
+pub trait Pattern: Send + Sync + Debug {
   fn matched(&self, chars: &[char]) -> Option<Matched>;
   // get a pattern trait object
   fn from_params(s: &str, _p: &str) -> Result<Box<dyn Pattern>, String>
@@ -272,9 +273,9 @@ pub struct RegExp<'a> {
 impl<'a> Pattern for RegExp<'a> {
   fn matched(&self, chars: &[char]) -> Option<Matched> {
     let Self { context, cache } = *self;
-    let content = to_static_str(chars.iter().collect::<String>());
+    let content = chars.iter().collect::<String>();
     let rule = RegExp::get_rule(context, cache);
-    if let Some(caps) = rule.captures(content) {
+    if let Some(caps) = rule.captures(to_static_str(content)) {
       let total_len = caps[0].len();
       let mut data = HashMap::with_capacity(caps.len() - 1);
       for (index, m) in caps.iter().skip(1).enumerate() {
@@ -318,7 +319,6 @@ impl<'a> RegExp<'a> {
       } else {
         let key = &to_static_str(last_context);
         let rule = Regex::new(key).expect(&wrong_regex);
-        println!("rule is ==={:?}", rule);
         let value = Arc::new(rule);
         let result = Arc::clone(&value);
         regexs.insert(key, value);

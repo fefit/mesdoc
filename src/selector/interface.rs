@@ -11,15 +11,13 @@ pub enum NodeType {
   Element,
   Text,
   Comment,
+  Spaces,
   Other,
 }
 
 impl NodeType {
   pub fn is_element(&self) -> bool {
-    match self {
-      NodeType::Element => true,
-      _ => false,
-    }
+    matches!(self, NodeType::Element)
   }
 }
 
@@ -35,12 +33,12 @@ pub trait NodeTrait {
   fn index(&self) -> Option<usize> {
     if self.node_type().is_element() {
       let parent = self.parent();
-      if parent.is_ok() {
-        let childs = parent.unwrap().get(0).unwrap().children().unwrap();
+      if let Ok(childs) = parent {
+        let childs = childs.get(0).unwrap().children().unwrap();
         let mut index = 0;
         for node in childs {
           if node.node_type().is_element() {
-            if self.is(node) {
+            if self.is(&node) {
               return Some(index);
             }
             index += 1;
@@ -67,7 +65,7 @@ pub trait NodeTrait {
   fn append_child(&mut self);
   fn remove_child(&mut self, node: BoxDynNode);
   // check if two node are the same
-  fn is(&self, node: BoxDynNode) -> bool;
+  fn is(&self, node: &BoxDynNode) -> bool;
 }
 
 #[derive(Default)]
@@ -89,6 +87,9 @@ impl<'a> NodeList<'a> {
   }
   pub fn get(&self, index: usize) -> Option<&BoxDynNode> {
     self.nodes.get(index)
+  }
+  pub fn count(&self) -> usize {
+    self.nodes.len()
   }
   pub fn from_rrc_slice<T: 'a>(v: &[RRC<T>]) -> Self
   where

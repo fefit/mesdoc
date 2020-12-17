@@ -1,19 +1,27 @@
-use std::collections::HashMap;
-
 use super::interface::{NodeList, Result as NResult};
 use super::pattern::{self, exec, to_pattern, Matched, Pattern};
 use crate::utils::{to_static_str, vec_char_to_clean_str};
 use lazy_static::lazy_static;
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::{Arc, Mutex};
 lazy_static! {
-  pub static ref RULES: Mutex<Vec<Rule>> = Mutex::new(Vec::with_capacity(20));
+  pub static ref RULES: Mutex<Vec<Arc<Rule>>> = Mutex::new(Vec::with_capacity(20));
 }
+
+pub type RuleMatchedData = HashMap<SavedDataKey, &'static str>;
+pub type Handle = Box<dyn (Fn(NodeList, RuleMatchedData) -> NResult) + Send + Sync>;
 pub struct Rule {
   queues: Vec<Box<dyn Pattern>>,
   fields: Vec<DataKey>,
   handle: Option<Handle>,
 }
 
+impl fmt::Debug for Rule {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.write_str(format!("Rule{{ queues: {:?} }}", self.queues).as_str())
+  }
+}
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub struct SavedDataKey(&'static str, usize, &'static str);
 pub type DataKey = (&'static str, usize);
@@ -42,8 +50,6 @@ impl From<&'static str> for SavedDataKey {
   }
 }
 
-pub type RuleMatchedData = HashMap<SavedDataKey, &'static str>;
-pub type Handle = Box<dyn (Fn(NodeList, RuleMatchedData) -> NResult) + Send>;
 // get char vec
 const DEF_SIZE: usize = 2;
 fn get_char_vec() -> Vec<char> {
@@ -222,18 +228,21 @@ impl From<&str> for Rule {
     }
     // not end
     if store.is_wait_end || store.is_in_matched {
-      panic!(format!(
+      panic!(
         "The Mathed type '{}' is not complete",
         store.names.iter().collect::<String>()
-      ));
+      );
     }
     if prev_char == START_CHAR || (prev_char == END_CHAR && !is_matched_finish) {
       panic_unmatched(prev_char, index - 1);
     }
     if !raw_chars.is_empty() {
-      queues.push(Box::new(raw_chars));
+      if raw_chars.len() == 1 {
+        queues.push(Box::new(raw_chars[0]));
+      } else {
+        queues.push(Box::new(raw_chars));
+      }
     }
-    println!("queues:{:?}", queues);
     Rule {
       queues,
       fields: Vec::with_capacity(3),
@@ -316,7 +325,7 @@ pub fn add_rules(rules: Vec<RuleItem>) {
   let mut all_rules = RULES.lock().unwrap();
   for (context, fields, handle) in rules {
     let cur_rule = Rule::add(context, fields, handle);
-    all_rules.push(cur_rule);
+    all_rules.push(Arc::new(cur_rule));
   }
 }
 

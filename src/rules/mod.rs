@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 lazy_static! {
   static ref IS_RULES_INIT: AtomicBool = AtomicBool::new(false);
 }
+pub(crate) mod all;
 pub(crate) mod attr;
 pub(crate) mod class;
 pub(crate) mod id;
@@ -15,11 +16,15 @@ pub fn init() {
     rule::init();
     // add rules
     let mut rules: Vec<RuleItem> = Vec::with_capacity(20);
-    id::init(&mut rules);
+    // keep the init order
     class::init(&mut rules);
-    pseudo::init(&mut rules);
+    id::init(&mut rules);
     attr::init(&mut rules);
+    pseudo::init(&mut rules);
     name::init(&mut rules);
+    all::init(&mut rules);
     add_rules(rules);
+    // set init true
+    IS_RULES_INIT.store(true, Ordering::SeqCst);
   }
 }
