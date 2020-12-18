@@ -15,6 +15,7 @@ pub struct Rule {
   queues: Vec<Box<dyn Pattern>>,
   fields: Vec<DataKey>,
   handle: Option<Handle>,
+  pub priority: u32,
 }
 
 impl fmt::Debug for Rule {
@@ -247,6 +248,7 @@ impl From<&str> for Rule {
       queues,
       fields: Vec::with_capacity(3),
       handle: None,
+      priority: 0,
     }
   }
 }
@@ -300,18 +302,24 @@ impl Rule {
     result
   }
   // set the data fields need to collect
-  pub fn set_params(this: &mut Self, fields: Vec<DataKey>, handle: Handle) -> &mut Self {
+  pub fn set_params(
+    this: &mut Self,
+    priority: u32,
+    fields: Vec<DataKey>,
+    handle: Handle,
+  ) -> &mut Self {
     if !this.fields.is_empty() {
       panic!("The rule's `set_params` can only call once");
     }
     this.fields = fields;
     this.handle = Some(handle);
+    this.priority = priority;
     this
   }
   // add a rule
-  pub fn add(context: &str, fields: Vec<DataKey>, handle: Handle) -> Self {
+  pub fn add(context: &str, priority: u32, fields: Vec<DataKey>, handle: Handle) -> Self {
     let mut rule: Rule = context.into();
-    Rule::set_params(&mut rule, fields, handle);
+    Rule::set_params(&mut rule, priority, fields, handle);
     rule
   }
   // quick method to get param
@@ -320,11 +328,11 @@ impl Rule {
   }
 }
 
-pub type RuleItem = (&'static str, Vec<DataKey>, Handle);
+pub type RuleItem = (&'static str, u32, Vec<DataKey>, Handle);
 pub fn add_rules(rules: Vec<RuleItem>) {
   let mut all_rules = RULES.lock().unwrap();
-  for (context, fields, handle) in rules {
-    let cur_rule = Rule::add(context, fields, handle);
+  for (context, priority, fields, handle) in rules {
+    let cur_rule = Rule::add(context, priority, fields, handle);
     all_rules.push(Arc::new(cur_rule));
   }
 }

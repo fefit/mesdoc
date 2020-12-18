@@ -3,6 +3,7 @@ use crate::selector::rule::{Rule, RuleItem};
 pub fn init(rules: &mut Vec<RuleItem>) {
   let rule: RuleItem = (
     ".{identity}",
+    1000,
     vec![("identity", 0)],
     Box::new(|nodes, params| {
       let class_name =

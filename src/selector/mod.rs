@@ -2,6 +2,7 @@ pub mod interface;
 pub mod pattern;
 pub mod rule;
 
+use interface::NodeList;
 use lazy_static::lazy_static;
 use pattern::Matched;
 use rule::{Rule, RULES};
@@ -60,20 +61,72 @@ impl Combinator {
 }
 
 pub type SelectorSegment = (Arc<Rule>, Vec<Matched>, Combinator);
+#[derive(Debug, Default)]
+pub struct QueryProcess {
+  pub should_in: Option<SelectorGroupsItem>,
+  pub find: SelectorGroupsItem,
+}
 #[derive(Debug)]
 pub struct Selector {
-  groups: Vec<Vec<SelectorSegment>>,
+  process: Vec<QueryProcess>,
 }
 
+type SelectorGroupsItem = Vec<Vec<SelectorSegment>>;
+type SelectorGroups = Vec<SelectorGroupsItem>;
 impl Selector {
   fn new() -> Self {
     Selector {
-      groups: Vec::with_capacity(1),
+      process: Vec::with_capacity(1),
     }
   }
-  fn add_group(&mut self) -> &mut Self {
-    self.groups.push(Vec::with_capacity(2));
-    self
+  fn add_group(groups: &mut SelectorGroups) {
+    groups.push(Vec::with_capacity(2));
+  }
+  fn add_group_item(groups: &mut SelectorGroups, item: SelectorSegment, is_new: bool) {
+    let last_group = groups.last_mut().unwrap();
+    if is_new {
+      last_group.push(vec![item]);
+    } else {
+      last_group.last_mut().unwrap().push(item);
+    }
+  }
+  // optimize the parse process
+  fn optimize(&mut self, groups: SelectorGroups) {
+    let mut process: Vec<QueryProcess> = Vec::with_capacity(groups.len());
+    for mut group in groups {
+      let pr = group
+        .iter()
+        .map(|v| v.iter().map(|(r, ..)| r.priority).sum())
+        .collect::<Vec<u32>>();
+      let max_index = pr
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.cmp(b))
+        .map(|(index, _)| index)
+        .unwrap();
+      let should_in: Option<SelectorGroupsItem>;
+      let find: SelectorGroupsItem;
+      if max_index > 0 {
+        let mut reversed = group.split_off(max_index - 1);
+        // reverse the parse
+        reversed.iter_mut().for_each(|v| {
+          v.iter_mut().for_each(|v| {
+            v.2 = v.2.reverse();
+          })
+        });
+        should_in = Some(reversed);
+        find = group;
+      } else {
+        should_in = None;
+        find = group;
+      }
+      process.push(QueryProcess { should_in, find });
+    }
+    self.process = process;
+  }
+  pub fn apply(root: NodeList) -> NodeList {
+    // first,
+    NodeList::new()
   }
 }
 
@@ -93,10 +146,10 @@ impl From<&str> for Selector {
     if total_len > 0 {
       let mut index: usize = 0;
       let mut comb = Combinator::ChildrenAll;
-      let mut group_index = 0;
       let mut prev_in = PrevInSelector::Begin;
       let mut last_in = prev_in;
-      selector.add_group();
+      let mut groups: SelectorGroups = Vec::new();
+      Selector::add_group(&mut groups);
       while index < total_len - 1 {
         let next_chars = &chars[index..];
         // first check if combinator
@@ -118,8 +171,7 @@ impl From<&str> for Selector {
             if prev_in != PrevInSelector::Selector {
               panic!("Wrong empty selector before ',' at index  {}", index);
             }
-            selector.add_group();
-            group_index += 1;
+            Selector::add_group(&mut groups);
             comb = Combinator::ChildrenAll;
           } else {
             comb = Combinator::from(op);
@@ -135,8 +187,10 @@ impl From<&str> for Selector {
           continue;
         }
         // then it must match a selector rule
+        let mut is_new_item = true;
         if prev_in == PrevInSelector::Selector {
           comb = Combinator::Chain;
+          is_new_item = false;
         } else {
           prev_in = PrevInSelector::Selector;
           last_in = prev_in;
@@ -148,8 +202,7 @@ impl From<&str> for Selector {
             // find the rule
             index += len;
             // push to selector
-            let group_item = selector.groups.get_mut(group_index).unwrap();
-            group_item.push((Arc::clone(r), matched, comb));
+            Selector::add_group_item(&mut groups, (Arc::clone(r), matched, comb), is_new_item);
             finded = true;
             break;
           }
@@ -166,6 +219,8 @@ impl From<&str> for Selector {
       if last_in != PrevInSelector::Selector {
         panic!("Wrong selector rule at last")
       }
+      // optimize groups to query process
+      selector.optimize(groups);
     }
     selector
   }

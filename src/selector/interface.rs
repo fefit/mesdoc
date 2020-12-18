@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::result::Result as OResult;
+
 pub type Result<'a> = OResult<NodeList<'a>, &'static str>;
 pub type BoxDynNode<'a> = Box<dyn NodeTrait + 'a>;
 pub enum AttrValue {
@@ -34,7 +35,7 @@ pub trait NodeTrait {
     if self.node_type().is_element() {
       let parent = self.parent();
       if let Ok(childs) = parent {
-        let childs = childs.get(0).unwrap().children().unwrap();
+        let childs = childs.children().unwrap();
         let mut index = 0;
         for node in childs {
           if node.node_type().is_element() {
@@ -49,7 +50,7 @@ pub trait NodeTrait {
     None
   }
   // find parents
-  fn parent(&self) -> Result;
+  fn parent(&self) -> OResult<BoxDynNode, &'static str>;
   fn children(&self) -> Result;
   // attribute
   fn get_attribute(&self, name: &str) -> Option<AttrValue>;
@@ -66,6 +67,7 @@ pub trait NodeTrait {
   fn remove_child(&mut self, node: BoxDynNode);
   // check if two node are the same
   fn is(&self, node: &BoxDynNode) -> bool;
+  // owner document
 }
 
 #[derive(Default)]
@@ -77,16 +79,22 @@ impl<'a> NodeList<'a> {
   pub fn new() -> Self {
     Default::default()
   }
-  pub fn push(&mut self, node: BoxDynNode<'a>) {
-    self.nodes.push(node);
+  pub fn get_ref(&self) -> &Vec<BoxDynNode<'a>> {
+    self.nodes.as_ref()
+  }
+  pub fn get_mut_ref(&mut self) -> &mut Vec<BoxDynNode<'a>> {
+    self.nodes.as_mut()
+  }
+  pub(crate) fn push(&mut self, node: BoxDynNode<'a>) {
+    self.get_mut_ref().push(node);
   }
   pub fn with_capacity(size: usize) -> Self {
     NodeList {
       nodes: Vec::with_capacity(size),
     }
   }
-  pub fn get(&self, index: usize) -> Option<&BoxDynNode> {
-    self.nodes.get(index)
+  pub(crate) fn get(&self, index: usize) -> Option<&BoxDynNode<'a>> {
+    self.get_ref().get(index)
   }
   pub fn count(&self) -> usize {
     self.nodes.len()
@@ -101,10 +109,7 @@ impl<'a> NodeList<'a> {
     }
     nodes.into()
   }
-  // get children
-  pub fn children(&self, selector: &str) -> NodeList {
-    NodeList::new()
-  }
+  // filter some rule
 }
 impl<'a> IntoIterator for NodeList<'a> {
   type Item = BoxDynNode<'a>;

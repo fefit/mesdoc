@@ -4,6 +4,6 @@ use gotdom::selector::Selector;
 
 fn main() {
   rules::init();
-  let q: Selector = "#haha > input[name='name'] + :first-child[readonly]".into();
+  let q: Selector = ".haha #abc > input[name='name'] + :first-child[readonly] > *.a".into();
   println!("q is {:?}", q);
 }

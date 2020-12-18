@@ -1,9 +1,11 @@
 use crate::selector::interface::{NodeList, NodeType};
 use crate::selector::rule::{Rule, RuleItem};
+const PRIORITY: u32 = 10;
 fn add_empty(rules: &mut Vec<RuleItem>) {
   // empty
   let rule: RuleItem = (
     ":empty",
+    PRIORITY,
     vec![],
     Box::new(|nodes, _params| {
       let mut result = NodeList::new();
@@ -37,6 +39,7 @@ fn add_first_child(rules: &mut Vec<RuleItem>) {
   // first-child
   let rule: RuleItem = (
     ":first-child",
+    PRIORITY,
     vec![],
     Box::new(|nodes, _params| {
       let mut result = NodeList::new();
@@ -58,13 +61,14 @@ fn add_last_child(rules: &mut Vec<RuleItem>) {
   // last_child
   let rule: RuleItem = (
     ":last-child",
+    PRIORITY,
     vec![],
     Box::new(|nodes, _params| {
       let mut result = NodeList::new();
       for node in nodes {
         if let Ok(pnode) = node.parent() {
           if node.node_type().is_element() {
-            let childs = pnode.get(0).unwrap().children().unwrap();
+            let childs = pnode.children().unwrap();
             let mut total = childs.count();
             while total > 0 {
               total -= 1;
@@ -90,6 +94,7 @@ fn add_first_of_type(rules: &mut Vec<RuleItem>) {
   // first of type
   let rule: RuleItem = (
     ":first-of-type",
+    PRIORITY,
     vec![],
     Box::new(|nodes, params| Ok(nodes)),
   );
