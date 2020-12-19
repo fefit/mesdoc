@@ -1,8 +1,8 @@
 #![allow(clippy::or_fun_call)]
 use crate::selector::interface::{AttrValue, NodeList};
-use crate::selector::rule::{Rule, RuleItem};
+use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
 pub fn init(rules: &mut Vec<RuleItem>) {
-  let rule: RuleItem = (
+  let rule = RuleDefItem(
     r##"[{spaces}{attr_key}{spaces}{regexp#(?:([~|^$*]?)=\s*(?:"((?:\\?+.)*?)"|'((?:\\?+.)*?)'|([^\s'"<>/=`]+)))?#}{spaces}]"##,
     10,
     vec![("attr_key", 0), ("regexp", 0)],
@@ -67,5 +67,5 @@ pub fn init(rules: &mut Vec<RuleItem>) {
       Ok(result)
     }),
   );
-  rules.push(rule);
+  rules.push(rule.into());
 }

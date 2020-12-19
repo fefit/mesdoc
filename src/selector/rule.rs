@@ -16,6 +16,7 @@ pub struct Rule {
   fields: Vec<DataKey>,
   handle: Option<Handle>,
   pub priority: u32,
+  pub no_traverse: bool,
 }
 
 impl fmt::Debug for Rule {
@@ -249,6 +250,7 @@ impl From<&str> for Rule {
       fields: Vec::with_capacity(3),
       handle: None,
       priority: 0,
+      no_traverse: false,
     }
   }
 }
@@ -305,6 +307,7 @@ impl Rule {
   pub fn set_params(
     this: &mut Self,
     priority: u32,
+    no_traverse: bool,
     fields: Vec<DataKey>,
     handle: Handle,
   ) -> &mut Self {
@@ -314,12 +317,19 @@ impl Rule {
     this.fields = fields;
     this.handle = Some(handle);
     this.priority = priority;
+    this.no_traverse = no_traverse;
     this
   }
   // add a rule
-  pub fn add(context: &str, priority: u32, fields: Vec<DataKey>, handle: Handle) -> Self {
+  pub fn add(
+    context: &str,
+    priority: u32,
+    no_traverse: bool,
+    fields: Vec<DataKey>,
+    handle: Handle,
+  ) -> Self {
     let mut rule: Rule = context.into();
-    Rule::set_params(&mut rule, priority, fields, handle);
+    Rule::set_params(&mut rule, priority, no_traverse, fields, handle);
     rule
   }
   // quick method to get param
@@ -328,11 +338,19 @@ impl Rule {
   }
 }
 
-pub type RuleItem = (&'static str, u32, Vec<DataKey>, Handle);
+pub struct RuleDefItem(pub &'static str, pub u32, pub Vec<DataKey>, pub Handle);
+pub type RuleItem = (&'static str, u32, bool, Vec<DataKey>, Handle);
+
+impl From<RuleDefItem> for RuleItem {
+  fn from(item: RuleDefItem) -> Self {
+    (item.0, item.1, false, item.2, item.3)
+  }
+}
+
 pub fn add_rules(rules: Vec<RuleItem>) {
   let mut all_rules = RULES.lock().unwrap();
-  for (context, priority, fields, handle) in rules {
-    let cur_rule = Rule::add(context, priority, fields, handle);
+  for (context, priority, no_traverse, fields, handle) in rules {
+    let cur_rule = Rule::add(context, priority, no_traverse, fields, handle);
     all_rules.push(Arc::new(cur_rule));
   }
 }

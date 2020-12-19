@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 lazy_static! {
   static ref SPLITTER: Mutex<Rule> = Mutex::new(Rule::from(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Combinator {
   // descendants
   ChildrenAll,
@@ -68,7 +68,7 @@ pub struct QueryProcess {
 }
 #[derive(Debug)]
 pub struct Selector {
-  process: Vec<QueryProcess>,
+  pub process: Vec<QueryProcess>,
 }
 
 type SelectorGroupsItem = Vec<Vec<SelectorSegment>>;
@@ -94,39 +94,50 @@ impl Selector {
   fn optimize(&mut self, groups: SelectorGroups) {
     let mut process: Vec<QueryProcess> = Vec::with_capacity(groups.len());
     for mut group in groups {
-      let pr = group
-        .iter()
-        .map(|v| v.iter().map(|(r, ..)| r.priority).sum())
-        .collect::<Vec<u32>>();
-      let max_index = pr
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.cmp(b))
-        .map(|(index, _)| index)
-        .unwrap();
-      let should_in: Option<SelectorGroupsItem>;
-      let find: SelectorGroupsItem;
-      if max_index > 0 {
-        let mut reversed = group.split_off(max_index - 1);
-        // reverse the parse
-        reversed.iter_mut().for_each(|v| {
-          v.iter_mut().for_each(|v| {
-            v.2 = v.2.reverse();
-          })
-        });
-        should_in = Some(reversed);
-        find = group;
-      } else {
-        should_in = None;
-        find = group;
+      // first optimize the chain selectors, the rule who's priority is bigger will apply first
+      let mut max_index: usize = 0;
+      let mut max_priority: u32 = 0;
+      for (index, r) in group.iter_mut().enumerate() {
+        let mut total_priority = 0;
+        if r.len() > 1 {
+          let chain_comb = r[0].2;
+          r.sort_by(|a, b| b.0.priority.partial_cmp(&a.0.priority).unwrap());
+          let mut now_first = &mut r[0];
+          if now_first.2 != chain_comb {
+            now_first.2 = chain_comb;
+            total_priority += now_first.0.priority;
+            for n in &mut r[1..] {
+              n.2 = Combinator::Chain;
+              total_priority += n.0.priority;
+            }
+            continue;
+          }
+        }
+        total_priority = r.iter().map(|p| p.0.priority).sum();
+        if total_priority > max_priority {
+          max_priority = total_priority;
+          max_index = index;
+        }
       }
-      process.push(QueryProcess { should_in, find });
+      // if the first combinator is child, and the max_index > 1, use the max_index's rule first
+      if max_index > 1 {
+        let is_child = matches!(
+          group[0][0].2,
+          Combinator::Children | Combinator::ChildrenAll
+        );
+        if is_child {
+          let find = group.split_off(max_index);
+          let should_in = Some(group);
+          process.push(QueryProcess { should_in, find });
+          continue;
+        }
+      }
+      process.push(QueryProcess {
+        should_in: None,
+        find: group,
+      });
     }
     self.process = process;
-  }
-  pub fn apply(root: NodeList) -> NodeList {
-    // first,
-    NodeList::new()
   }
 }
 

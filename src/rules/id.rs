@@ -4,6 +4,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
   let rule: RuleItem = (
     "#{identity}",
     10000,
+    true,
     vec![("identity", 0)],
     Box::new(|nodes, params| {
       let id = Rule::param(&params, "identity").expect("The 'id' selector is not correct");

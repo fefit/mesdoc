@@ -1,9 +1,9 @@
 use crate::selector::interface::{NodeList, NodeType};
-use crate::selector::rule::{Rule, RuleItem};
+use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
 const PRIORITY: u32 = 10;
 fn add_empty(rules: &mut Vec<RuleItem>) {
   // empty
-  let rule: RuleItem = (
+  let rule = RuleDefItem(
     ":empty",
     PRIORITY,
     vec![],
@@ -33,11 +33,11 @@ fn add_empty(rules: &mut Vec<RuleItem>) {
       Ok(result)
     }),
   );
-  rules.push(rule);
+  rules.push(rule.into());
 }
 fn add_first_child(rules: &mut Vec<RuleItem>) {
   // first-child
-  let rule: RuleItem = (
+  let rule = RuleDefItem(
     ":first-child",
     PRIORITY,
     vec![],
@@ -55,11 +55,11 @@ fn add_first_child(rules: &mut Vec<RuleItem>) {
       Ok(result)
     }),
   );
-  rules.push(rule);
+  rules.push(rule.into());
 }
 fn add_last_child(rules: &mut Vec<RuleItem>) {
   // last_child
-  let rule: RuleItem = (
+  let rule = RuleDefItem(
     ":last-child",
     PRIORITY,
     vec![],
@@ -88,17 +88,17 @@ fn add_last_child(rules: &mut Vec<RuleItem>) {
       Ok(result)
     }),
   );
-  rules.push(rule);
+  rules.push(rule.into());
 }
 fn add_first_of_type(rules: &mut Vec<RuleItem>) {
   // first of type
-  let rule: RuleItem = (
+  let rule = RuleDefItem(
     ":first-of-type",
     PRIORITY,
     vec![],
     Box::new(|nodes, params| Ok(nodes)),
   );
-  rules.push(rule);
+  rules.push(rule.into());
 }
 pub fn init(rules: &mut Vec<RuleItem>) {
   add_empty(rules);

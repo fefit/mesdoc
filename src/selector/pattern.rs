@@ -232,10 +232,10 @@ impl Pattern for Nth {
       cache: true,
       context: r#"^\s*(?:([-+])?([0-9]|[1-9]\d+)n\s*([+-])\s*)?([0-9]|[1-9]\d+)"#,
     };
+    let mut data = HashMap::with_capacity(2);
     if let Some(v) = Pattern::matched(&rule, chars) {
       let rule_data = v.data;
       let mut index = *rule_data.get("4").expect("the nth's rule must matched.");
-      let mut data = HashMap::with_capacity(2);
       if let Some(&n) = rule_data.get("2") {
         let mut n = n;
         let op_index = *rule_data.get("3").unwrap();
@@ -250,6 +250,14 @@ impl Pattern for Nth {
         data.insert("n", n);
       }
       data.insert("index", index);
+    } else if Pattern::matched(&vec!['e', 'v', 'e', 'n'], chars).is_some() {
+      data.insert("n", "2");
+      data.insert("index", "0");
+    } else if Pattern::matched(&vec!['o', 'd', 'd'], chars).is_some() {
+      data.insert("n", "2");
+      data.insert("index", "1");
+    }
+    if !data.is_empty() {
       return Some(Matched {
         name: "nth",
         data,

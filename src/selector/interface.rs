@@ -2,6 +2,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::result::Result as OResult;
 
+use super::{QueryProcess, Selector};
+
 pub type Result<'a> = OResult<NodeList<'a>, &'static str>;
 pub type BoxDynNode<'a> = Box<dyn NodeTrait + 'a>;
 pub enum AttrValue {
@@ -21,7 +23,9 @@ impl NodeType {
     matches!(self, NodeType::Element)
   }
 }
-
+pub trait Document {
+  fn get_element_by_id(id: &str) -> BoxDynNode;
+}
 type RRC<T> = Rc<RefCell<T>>;
 pub trait NodeTrait {
   // clone a node
@@ -66,7 +70,10 @@ pub trait NodeTrait {
   fn append_child(&mut self);
   fn remove_child(&mut self, node: BoxDynNode);
   // check if two node are the same
-  fn is(&self, node: &BoxDynNode) -> bool;
+  fn uuid(&self) -> &str;
+  fn is(&self, node: &BoxDynNode) -> bool {
+    self.uuid() == node.uuid()
+  }
   // owner document
 }
 
@@ -110,6 +117,20 @@ impl<'a> NodeList<'a> {
     nodes.into()
   }
   // filter some rule
+  pub fn find(&self, selector: &str) -> Result {
+    let selector: Selector = selector.into();
+    let process = selector.process;
+    let mut result = NodeList::with_capacity(5);
+    for p in process {
+      let QueryProcess { should_in, find } = p;
+      // let first = find[0];
+      // let first_rule = first;
+      // let first_rule_comb = first[0].2;
+
+      // if let Some(lookup) = should_in {}
+    }
+    Err("")
+  }
 }
 impl<'a> IntoIterator for NodeList<'a> {
   type Item = BoxDynNode<'a>;

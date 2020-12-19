@@ -1,7 +1,7 @@
 use crate::selector::interface::NodeList;
-use crate::selector::rule::{Rule, RuleItem};
+use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
 pub fn init(rules: &mut Vec<RuleItem>) {
-  let rule: RuleItem = (
+  let rule = RuleDefItem(
     "{identity}",
     100,
     vec![("identity", 0)],
@@ -16,5 +16,5 @@ pub fn init(rules: &mut Vec<RuleItem>) {
       Ok(result)
     }),
   );
-  rules.push(rule);
+  rules.push(rule.into());
 }
