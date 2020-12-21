@@ -8,7 +8,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
     Box::new(|nodes, params| {
       let name = Rule::param(&params, "identity").expect("The 'id' selector is not correct");
       let mut result: NodeList = NodeList::new();
-      for node in nodes {
+      for node in nodes.get_ref() {
         if node.tag_name() == name {
           result.push(node.cloned());
         }

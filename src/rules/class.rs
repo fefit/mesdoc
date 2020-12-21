@@ -9,7 +9,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
       let class_name =
         Rule::param(&params, "identity").expect("The 'class' selector is not correct");
       let mut result: NodeList = NodeList::new();
-      for node in nodes {
+      for node in nodes.get_ref() {
         if let Some(AttrValue::Value(classes)) = node.get_attribute("id") {
           let class_list = classes.split_ascii_whitespace();
           for cls in class_list {

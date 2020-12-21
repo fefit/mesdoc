@@ -10,7 +10,8 @@ lazy_static! {
 }
 
 pub type RuleMatchedData = HashMap<SavedDataKey, &'static str>;
-pub type Handle = Box<dyn (Fn(NodeList, RuleMatchedData) -> NResult) + Send + Sync>;
+pub type Handle =
+  Box<dyn (for<'a, 'r> Fn(&'a NodeList<'r>, &'a RuleMatchedData) -> NResult<'r>) + Send + Sync>;
 pub struct Rule {
   queues: Vec<Box<dyn Pattern>>,
   fields: Vec<DataKey>,
@@ -256,7 +257,7 @@ impl From<&str> for Rule {
 }
 
 impl Rule {
-  pub fn exec<'a>(&'a self, chars: &[char]) -> Option<(Vec<Matched>, usize)> {
+  pub fn exec(&self, chars: &[char]) -> Option<(Vec<Matched>, usize)> {
     let (result, matched_len, _) = exec(&self.queues, chars);
     if matched_len > 0 {
       Some((result, matched_len))
@@ -264,14 +265,15 @@ impl Rule {
       None
     }
   }
-  pub fn apply<'a>(&'a self, node_list: NodeList<'a>, matched: Vec<Matched>) -> NResult {
+  pub fn apply<'a, 'r>(&self, node_list: &'a NodeList<'r>, matched: &[Matched]) -> NResult<'r> {
     let handle = self
       .handle
       .as_ref()
       .expect("The rule's handle must set before call `exec`,you should use `set_params` to set the handle.");
-    handle(node_list, self.data(matched))
+    let params = self.data(matched);
+    handle(node_list, &params)
   }
-  pub fn data(&self, data: Vec<Matched>) -> RuleMatchedData {
+  pub fn data(&self, data: &[Matched]) -> RuleMatchedData {
     let mut result: RuleMatchedData = HashMap::with_capacity(5);
     let mut indexs = HashMap::with_capacity(5);
     let fields = &self.fields;
@@ -310,7 +312,7 @@ impl Rule {
     no_traverse: bool,
     fields: Vec<DataKey>,
     handle: Handle,
-  ) -> &mut Self {
+  ) {
     if !this.fields.is_empty() {
       panic!("The rule's `set_params` can only call once");
     }
@@ -318,7 +320,6 @@ impl Rule {
     this.handle = Some(handle);
     this.priority = priority;
     this.no_traverse = no_traverse;
-    this
   }
   // add a rule
   pub fn add(

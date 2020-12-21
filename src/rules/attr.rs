@@ -58,7 +58,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
         Box::new(|val: Option<AttrValue>| val.is_some())
       };
       let mut result: NodeList = NodeList::new();
-      for node in nodes {
+      for node in nodes.get_ref() {
         let cur_value = node.get_attribute(attr_key);
         if handle(cur_value) {
           result.push(node.cloned());
