@@ -1,8 +1,8 @@
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::result::Result as OResult;
+use std::{cell::RefCell, mem::swap};
 
-use super::{Combinator, QueryProcess, Selector, SelectorGroupsItem, SelectorSegment};
+use super::{Combinator, QueryProcess, Selector, SelectorSegment};
 
 pub type Result<'a> = OResult<NodeList<'a>, &'static str>;
 pub type SResult<'a> = OResult<Option<BoxDynNode<'a>>, &'static str>;
@@ -224,17 +224,20 @@ impl<'a> NodeList<'a> {
         mut query,
       } = p;
       let first = &mut query[0];
-      let lookup_comb = first[0].2;
+      let mut lookup_comb = first[0].2;
       let mut group: NodeList;
-      if let Some(lookup) = should_in {
+      if let Some(mut lookup) = should_in {
         first[0].2 = Combinator::ChildrenAll;
         group = NodeList::with_capacity(5);
         // get finded
-        let finded = NodeList::select(self, first, false)?;
+        let finded = NodeList::select(self, first)?;
         if finded.count() > 0 {
-          let firsts = NodeList::select(self, &lookup[0], false)?;
+          let firsts = NodeList::select(self, &lookup[0])?;
           if firsts.count() > 0 {
             let lookup_rules = if lookup.len() > 1 {
+              for rule in &mut lookup[1..] {
+                swap(&mut rule[0].2, &mut lookup_comb);
+              }
               Some(&lookup[1..])
             } else {
               None
@@ -242,7 +245,7 @@ impl<'a> NodeList<'a> {
             // remove the first
             query.remove(0);
             for node in finded.get_ref() {
-              if firsts.contains(node, &lookup_comb, lookup_rules) {
+              if firsts.contains(node, &lookup_comb.reverse(), lookup_rules) {
                 group.push(node.cloned());
               }
             }
@@ -254,7 +257,7 @@ impl<'a> NodeList<'a> {
       let mut is_empty = false;
       if group.count() > 0 && !query.is_empty() {
         for rules in query {
-          group = NodeList::select(&group, &rules, false)?;
+          group = NodeList::select(&group, &rules)?;
           if group.count() == 0 {
             is_empty = true;
             break;
@@ -282,23 +285,19 @@ impl<'a> NodeList<'a> {
     result
   }
   // select node by rules
-  fn select<'b>(
-    node_list: &'b NodeList<'a>,
-    rules: &'b [SelectorSegment],
-    forbid_cache: bool,
-  ) -> Result<'a> {
+  fn select<'b>(node_list: &'b NodeList<'a>, rules: &'b [SelectorSegment]) -> Result<'a> {
     let mut node_list = node_list.cloned();
     use Combinator::*;
     for (index, r) in rules.iter().enumerate() {
       let (rule, matched, comb) = r;
       let cur_rule = &rules[index..index + 1];
       let mut cur_result = NodeList::with_capacity(5);
-      if rule.in_cache && !forbid_cache {
+      if rule.in_cache {
         // in cache
         let finded = rule.apply(&node_list, matched)?;
         if finded.count() > 0 {
           for node in finded.get_ref() {
-            if node_list.contains(node, comb, None) {
+            if node_list.contains(node, &comb.reverse(), None) {
               cur_result.push(node.cloned());
             }
           }
@@ -316,7 +315,7 @@ impl<'a> NodeList<'a> {
                 cur_result.get_mut_ref().extend(match_childs);
               }
               // traversal
-              let sub_childs = NodeList::select(&childs, cur_rule, true)?;
+              let sub_childs = NodeList::select(&childs, cur_rule)?;
               cur_result.get_mut_ref().extend(sub_childs);
             }
           }
@@ -357,7 +356,7 @@ impl<'a> NodeList<'a> {
             if ancestors.count() > 0 {
               cur_result
                 .get_mut_ref()
-                .extend(NodeList::select(&ancestors, cur_rule, true)?);
+                .extend(NodeList::select(&ancestors, cur_rule)?);
             }
           }
           Combinator::NextAll => {
@@ -426,11 +425,72 @@ impl<'a> NodeList<'a> {
     comb: &Combinator,
     lookup: Option<&'b [Vec<SelectorSegment>]>,
   ) -> bool {
-    let mut comb = *comb;
-    // if let Some(lookup) = lookup {
-    //   for mut rules in lookup {}
-    // }
+    let mut node_list = NodeList::with_nodes(vec![node.cloned()]);
+    if let Some(lookup) = lookup {
+      for rules in lookup.iter().rev() {
+        if let Ok(finded) = NodeList::select(&node_list, rules) {
+          node_list = finded;
+        } else {
+          node_list = NodeList::new();
+        }
+        if node_list.count() == 0 {
+          return false;
+        }
+      }
+    }
+    use Combinator::*;
+    match comb {
+      Parent => {
+        for node in node_list.get_ref() {
+          if let Some(parent) = node.parent().unwrap_or(None) {
+            if self.includes(&parent) {
+              return true;
+            }
+          }
+        }
+      }
+      ParentAll => {
+        for node in node_list.get_ref() {
+          if let Some(parent) = node.parent().unwrap_or(None) {
+            if self.includes(&parent) {
+              return true;
+            }
+            if let Some(ancestor) = parent.parent().unwrap_or(None) {
+              if self.contains(&ancestor, comb, None) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+      Prev => {
+        for node in node_list.get_ref() {
+          if let Some(prev) = node.previous_sibling().unwrap_or(None) {
+            if self.includes(&prev) {
+              return true;
+            }
+          }
+        }
+      }
+      PrevAll => {
+        for node in node_list.get_ref() {
+          if let Ok(prevs) = node.previous_siblings() {
+            for node in prevs.get_ref() {
+              if self.includes(node) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+      _ => panic!("Unsupported lookup combinator:{:?}", comb),
+    };
+
     false
+  }
+  fn includes(&self, node: &BoxDynNode) -> bool {
+    let uuid = node.uuid();
+    self.get_ref().iter().any(|n| n.uuid() == uuid)
   }
 }
 
