@@ -17,7 +17,7 @@ pub struct Rule {
   fields: Vec<DataKey>,
   handle: Option<Handle>,
   pub priority: u32,
-  pub no_traverse: bool,
+  pub in_cache: bool,
 }
 
 impl fmt::Debug for Rule {
@@ -251,7 +251,7 @@ impl From<&str> for Rule {
       fields: Vec::with_capacity(3),
       handle: None,
       priority: 0,
-      no_traverse: false,
+      in_cache: false,
     }
   }
 }
@@ -309,7 +309,7 @@ impl Rule {
   pub fn set_params(
     this: &mut Self,
     priority: u32,
-    no_traverse: bool,
+    in_cache: bool,
     fields: Vec<DataKey>,
     handle: Handle,
   ) {
@@ -319,18 +319,18 @@ impl Rule {
     this.fields = fields;
     this.handle = Some(handle);
     this.priority = priority;
-    this.no_traverse = no_traverse;
+    this.in_cache = in_cache;
   }
   // add a rule
   pub fn add(
     context: &str,
     priority: u32,
-    no_traverse: bool,
+    in_cache: bool,
     fields: Vec<DataKey>,
     handle: Handle,
   ) -> Self {
     let mut rule: Rule = context.into();
-    Rule::set_params(&mut rule, priority, no_traverse, fields, handle);
+    Rule::set_params(&mut rule, priority, in_cache, fields, handle);
     rule
   }
   // quick method to get param
@@ -350,8 +350,8 @@ impl From<RuleDefItem> for RuleItem {
 
 pub fn add_rules(rules: Vec<RuleItem>) {
   let mut all_rules = RULES.lock().unwrap();
-  for (context, priority, no_traverse, fields, handle) in rules {
-    let cur_rule = Rule::add(context, priority, no_traverse, fields, handle);
+  for (context, priority, in_cache, fields, handle) in rules {
+    let cur_rule = Rule::add(context, priority, in_cache, fields, handle);
     all_rules.push(Arc::new(cur_rule));
   }
 }

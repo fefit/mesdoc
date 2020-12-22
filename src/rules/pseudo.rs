@@ -1,5 +1,5 @@
 use crate::selector::interface::{NodeList, NodeType};
-use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
+use crate::selector::rule::{RuleDefItem, RuleItem};
 const PRIORITY: u32 = 10;
 fn add_empty(rules: &mut Vec<RuleItem>) {
   // empty
@@ -92,7 +92,7 @@ fn add_first_of_type(rules: &mut Vec<RuleItem>) {
     ":first-of-type",
     PRIORITY,
     vec![],
-    Box::new(|nodes, params| Ok(nodes.cloned())),
+    Box::new(|nodes, _params| Ok(nodes.cloned())),
   );
   rules.push(rule.into());
 }

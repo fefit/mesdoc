@@ -2,7 +2,6 @@ pub mod interface;
 pub mod pattern;
 pub mod rule;
 
-use interface::NodeList;
 use lazy_static::lazy_static;
 use pattern::Matched;
 use rule::{Rule, RULES};
@@ -64,7 +63,7 @@ pub type SelectorSegment = (Arc<Rule>, Vec<Matched>, Combinator);
 #[derive(Debug, Default)]
 pub struct QueryProcess {
   pub should_in: Option<SelectorGroupsItem>,
-  pub find: SelectorGroupsItem,
+  pub query: SelectorGroupsItem,
 }
 #[derive(Debug)]
 pub struct Selector {
@@ -126,15 +125,15 @@ impl Selector {
           Combinator::Children | Combinator::ChildrenAll
         );
         if is_child {
-          let find = group.split_off(max_index);
+          let query = group.split_off(max_index);
           let should_in = Some(group);
-          process.push(QueryProcess { should_in, find });
+          process.push(QueryProcess { should_in, query });
           continue;
         }
       }
       process.push(QueryProcess {
         should_in: None,
-        find: group,
+        query: group,
       });
     }
     self.process = process;
