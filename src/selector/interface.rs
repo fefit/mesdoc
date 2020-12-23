@@ -26,7 +26,7 @@ impl NodeType {
   }
 }
 pub trait Document {
-  fn get_element_by_id(id: &str) -> BoxDynNode;
+  fn get_element_by_id(id: &str) -> Option<BoxDynNode>;
 }
 type RRC<T> = Rc<RefCell<T>>;
 pub trait NodeTrait {
@@ -244,10 +244,46 @@ impl<'a> NodeList<'a> {
             };
             // remove the first
             query.remove(0);
+            // check if the previous node and the current node are siblings.
+            let mut prev_node: Option<&BoxDynNode> = None;
+            let mut is_find = false;
             for node in finded.get_ref() {
+              if prev_node.is_some() && NodeList::is_sibling(node, prev_node.unwrap()) {
+                match lookup_comb {
+                  Combinator::Next => {
+                    if is_find {
+                      // do nothing, because has finded the only sibling node matched.
+                      continue;
+                    }
+                    // if not find, should detect the current node
+                  }
+                  Combinator::NextAll => {
+                    if is_find {
+                      group.push(node.cloned());
+                      continue;
+                    }
+                    // if not find, should detect the node
+                  }
+                  _ => {
+                    // do the same thing as `prev_node`
+                    // if `is_find` is true, then add the node, otherwise it's not matched too.
+                    // keep the `is_find` value
+                    if is_find {
+                      group.push(node.cloned());
+                    }
+                    continue;
+                  }
+                };
+              }
+              // check if the node is in firsts
               if firsts.contains(node, &lookup_comb.reverse(), lookup_rules) {
                 group.push(node.cloned());
+                is_find = true;
+              } else {
+                is_find = false;
               }
+              // set the prev node
+              prev_node = Some(node);
             }
           }
         }
@@ -305,16 +341,23 @@ impl<'a> NodeList<'a> {
       } else {
         match comb {
           ChildrenAll => {
+            // breadth first search, keep the
+            let mut all_childs: Vec<NodeList> = Vec::with_capacity(node_list.count());
             for node in node_list.get_ref() {
               // get children
               let childs = node.children()?;
-              // apply rule
-              let match_childs = rule.apply(&childs, matched)?;
-              // merge to result
-              if match_childs.count() > 0 {
-                cur_result.get_mut_ref().extend(match_childs);
+              if childs.count() > 0 {
+                // apply rule
+                let match_childs = rule.apply(&childs, matched)?;
+                // merge to result
+                if match_childs.count() > 0 {
+                  cur_result.get_mut_ref().extend(match_childs);
+                }
+                // for traversal
+                all_childs.push(childs);
               }
-              // traversal
+            }
+            for childs in all_childs {
               let sub_childs = NodeList::select(&childs, cur_rule)?;
               cur_result.get_mut_ref().extend(sub_childs);
             }
@@ -485,12 +528,21 @@ impl<'a> NodeList<'a> {
       }
       _ => panic!("Unsupported lookup combinator:{:?}", comb),
     };
-
     false
   }
+  /// check if the node list contains some node
   fn includes(&self, node: &BoxDynNode) -> bool {
-    let uuid = node.uuid();
-    self.get_ref().iter().any(|n| n.uuid() == uuid)
+    self.get_ref().iter().any(|n| node.is(n))
+  }
+  /// check if two nodes are siblings.
+  fn is_sibling(cur: &BoxDynNode, other: &BoxDynNode) -> bool {
+    // just check if they have same parent.
+    if let Ok(Some(parent)) = cur.parent() {
+      if let Ok(Some(other_parent)) = other.parent() {
+        return parent.is(&other_parent);
+      }
+    }
+    false
   }
 }
 
