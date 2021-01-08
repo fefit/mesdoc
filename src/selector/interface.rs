@@ -1,41 +1,42 @@
 use std::rc::Rc;
-use std::result::Result as OResult;
+use std::result::Result as StdResult;
 use std::{cell::RefCell, mem::swap};
 
 use super::{Combinator, QueryProcess, Selector, SelectorSegment};
 
-pub type Result<'a> = OResult<NodeList<'a>, &'static str>;
-pub type SResult<'a> = OResult<Option<BoxDynNode<'a>>, &'static str>;
-pub type BoxDynNode<'a> = Box<dyn NodeTrait + 'a>;
-pub enum AttrValue {
-  Value(&'static str),
-  Flag(bool),
+pub type Result<'a> = StdResult<NodeList<'a>, &'static str>;
+pub type MaybeResult<'a> = StdResult<Option<BoxDynNode<'a>>, &'static str>;
+pub type BoxDynNode<'a> = Box<dyn INodeTrait + 'a>;
+pub enum IAttrValue {
+  Value(String, Option<char>),
+  True,
 }
-pub enum NodeType {
+pub enum INodeType {
   Element,
   Text,
   Comment,
   Spaces,
+  Document,
   Other,
 }
 
 pub type UUID = &'static str;
-impl NodeType {
+impl INodeType {
   pub fn is_element(&self) -> bool {
-    matches!(self, NodeType::Element)
+    matches!(self, INodeType::Element)
   }
 }
-pub trait Document {
+pub trait Document: INodeTrait {
   fn get_element_by_id(id: &str) -> Option<BoxDynNode>;
 }
 type RRC<T> = Rc<RefCell<T>>;
-pub trait NodeTrait {
+pub trait INodeTrait {
   // clone a node
-  fn cloned(&self) -> Box<dyn NodeTrait>;
+  fn cloned(&self) -> Box<dyn INodeTrait>;
   // tag name
   fn tag_name(&self) -> &str;
   // get node type
-  fn node_type(&self) -> NodeType;
+  fn node_type(&self) -> INodeType;
   // get node index
   fn index(&self) -> Option<usize> {
     let parent = self.parent();
@@ -54,7 +55,7 @@ pub trait NodeTrait {
     None
   }
   // find parents
-  fn parent<'b>(&self) -> SResult<'b>;
+  fn parent<'b>(&self) -> MaybeResult<'b>;
   fn children<'b>(&self) -> Result<'b>;
   // get all childrens
   fn childrens<'b>(&self) -> Result<'b> {
@@ -70,7 +71,7 @@ pub trait NodeTrait {
     Ok(result)
   }
   // next sibling
-  fn next_sibling<'b>(&self) -> SResult<'b> {
+  fn next_sibling<'b>(&self) -> MaybeResult<'b> {
     let parent = self.parent()?;
     if let Some(p) = parent {
       let childs = p.children()?;
@@ -105,7 +106,7 @@ pub trait NodeTrait {
     Ok(result)
   }
   // prev
-  fn previous_sibling<'b>(&self) -> SResult<'b> {
+  fn previous_sibling<'b>(&self) -> MaybeResult<'b> {
     let parent = self.parent()?;
     if let Some(p) = parent {
       let childs = p.children()?;
@@ -151,18 +152,18 @@ pub trait NodeTrait {
     Ok(result)
   }
   // attribute
-  fn get_attribute(&self, name: &str) -> Option<AttrValue>;
-  fn set_attribute(&mut self, value: AttrValue);
+  fn get_attribute(&self, name: &str) -> Option<IAttrValue>;
+  fn set_attribute(&mut self, name: &str, value: Option<&str>);
   fn has_attribute(&self, name: &str) -> bool {
     self.get_attribute(name).is_some()
   }
   // html/text
-  fn html(&self) -> &str;
-  fn inner_html(&self) -> &str;
-  fn text_content(&self) -> &str;
-  // node
-  fn append_child(&mut self);
-  fn remove_child(&mut self, node: BoxDynNode);
+  // fn html(&self) -> &str;
+  // fn inner_html(&self) -> &str;
+  // fn text_content(&self) -> &str;
+  // // node
+  // fn append_child(&mut self);
+  // fn remove_child(&mut self, node: BoxDynNode);
   // check if two node are the same
   fn uuid(&self) -> UUID;
   fn is(&self, node: &BoxDynNode) -> bool {
@@ -205,7 +206,7 @@ impl<'a> NodeList<'a> {
   }
   pub fn from_rrc_slice<T: 'a>(v: &[RRC<T>]) -> Self
   where
-    RRC<T>: NodeTrait,
+    RRC<T>: INodeTrait,
   {
     let mut nodes: Vec<BoxDynNode> = Vec::with_capacity(v.len());
     for item in v.iter() {
@@ -276,7 +277,7 @@ impl<'a> NodeList<'a> {
                 };
               }
               // check if the node is in firsts
-              if firsts.contains(node, &lookup_comb.reverse(), lookup_rules) {
+              if firsts.contains_node(node, &lookup_comb.reverse(), lookup_rules) {
                 group.push(node.cloned());
                 is_find = true;
               } else {
@@ -333,7 +334,7 @@ impl<'a> NodeList<'a> {
         let finded = rule.apply(&node_list, matched)?;
         if finded.count() > 0 {
           for node in finded.get_ref() {
-            if node_list.contains(node, &comb.reverse(), None) {
+            if node_list.contains_node(node, &comb.reverse(), None) {
               cur_result.push(node.cloned());
             }
           }
@@ -461,8 +462,8 @@ impl<'a> NodeList<'a> {
     }
     result
   }
-  // contains
-  pub fn contains<'b>(
+  // `contains_node`
+  pub fn contains_node<'b>(
     &self,
     node: &'b BoxDynNode,
     comb: &Combinator,
@@ -499,7 +500,7 @@ impl<'a> NodeList<'a> {
               return true;
             }
             if let Some(ancestor) = parent.parent().unwrap_or(None) {
-              if self.contains(&ancestor, comb, None) {
+              if self.contains_node(&ancestor, comb, None) {
                 return true;
               }
             }

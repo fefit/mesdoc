@@ -1,4 +1,4 @@
-use crate::selector::interface::{NodeList, NodeType};
+use crate::selector::interface::{NodeList, INodeType};
 use crate::selector::rule::{RuleDefItem, RuleItem};
 const PRIORITY: u32 = 10;
 fn add_empty(rules: &mut Vec<RuleItem>) {
@@ -14,7 +14,7 @@ fn add_empty(rules: &mut Vec<RuleItem>) {
           let mut only_comments = true;
           for child in childs {
             match child.node_type() {
-              NodeType::Comment => continue,
+              INodeType::Comment => continue,
               _ => {
                 only_comments = false;
                 break;

@@ -1,5 +1,5 @@
 #![allow(clippy::or_fun_call)]
-use crate::selector::interface::{AttrValue, NodeList};
+use crate::selector::interface::{IAttrValue, NodeList};
 use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
 pub fn init(rules: &mut Vec<RuleItem>) {
   let rule = RuleDefItem(
@@ -12,23 +12,23 @@ pub fn init(rules: &mut Vec<RuleItem>) {
       let attr_value = Rule::param(&params, ("regexp", 0, "2"))
         .or(Rule::param(&params, ("regexp", 0, "3")))
         .or(Rule::param(&params, ("regexp", 0, "4")));
-      let handle: Box<dyn Fn(Option<AttrValue>) -> bool> = if let Some(attr_value) = attr_value {
+      let handle: Box<dyn Fn(Option<IAttrValue>) -> bool> = if let Some(attr_value) = attr_value {
         let mode = Rule::param(&params, ("regexp", 0, "1")).unwrap_or("");
         match mode {
-          "^" => Box::new(move |val: Option<AttrValue>| match val {
-            Some(AttrValue::Value(v)) => v.starts_with(attr_value),
+          "^" => Box::new(move |val: Option<IAttrValue>| match val {
+            Some(IAttrValue::Value(v, _)) => v.starts_with(attr_value),
             _ => false,
           }),
-          "$" => Box::new(move |val: Option<AttrValue>| match val {
-            Some(AttrValue::Value(v)) => v.ends_with(attr_value),
+          "$" => Box::new(move |val: Option<IAttrValue>| match val {
+            Some(IAttrValue::Value(v, _)) => v.ends_with(attr_value),
             _ => false,
           }),
-          "*" => Box::new(move |val: Option<AttrValue>| match val {
-            Some(AttrValue::Value(v)) => v.contains(attr_value),
+          "*" => Box::new(move |val: Option<IAttrValue>| match val {
+            Some(IAttrValue::Value(v, _)) => v.contains(attr_value),
             _ => false,
           }),
-          "|" => Box::new(move |val: Option<AttrValue>| match val {
-            Some(AttrValue::Value(v)) => {
+          "|" => Box::new(move |val: Option<IAttrValue>| match val {
+            Some(IAttrValue::Value(v, _)) => {
               if v.contains(attr_value) {
                 return true;
               }
@@ -37,8 +37,8 @@ pub fn init(rules: &mut Vec<RuleItem>) {
             }
             _ => false,
           }),
-          "~" => Box::new(move |val: Option<AttrValue>| match val {
-            Some(AttrValue::Value(v)) => {
+          "~" => Box::new(move |val: Option<IAttrValue>| match val {
+            Some(IAttrValue::Value(v, _)) => {
               let split_v = v.split_ascii_whitespace();
               for v in split_v {
                 if v == attr_value {
@@ -49,13 +49,13 @@ pub fn init(rules: &mut Vec<RuleItem>) {
             }
             _ => false,
           }),
-          _ => Box::new(move |val: Option<AttrValue>| match val {
-            Some(AttrValue::Value(v)) => v == attr_value,
+          _ => Box::new(move |val: Option<IAttrValue>| match val {
+            Some(IAttrValue::Value(v, _)) => v == attr_value,
             _ => false,
           }),
         }
       } else {
-        Box::new(|val: Option<AttrValue>| val.is_some())
+        Box::new(|val: Option<IAttrValue>| val.is_some())
       };
       let mut result: NodeList = NodeList::new();
       for node in nodes.get_ref() {

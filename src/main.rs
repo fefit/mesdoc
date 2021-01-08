@@ -1,6 +1,6 @@
 #![allow(clippy::or_fun_call)]
-use gotdom::rules;
-use gotdom::selector::Selector;
+use ntree::rules;
+use ntree::selector::Selector;
 
 fn main() {
   rules::init();

@@ -1,6 +1,6 @@
 [package]
-name = "gotdom"
-version = "0.1.0"
+name = "ntree"
+version = "0.0.1"
 authors = ["jxz_211 <jxz_211@163.com>"]
 edition = "2018"
 
