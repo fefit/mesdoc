@@ -187,7 +187,7 @@ impl From<&str> for Selector {
             comb = Combinator::from(op);
           }
           // set prev is splitter
-          if op == "" {
+          if op.is_empty() {
             last_in = prev_in;
             prev_in = PrevInSelector::Splitter;
           } else {

@@ -20,7 +20,6 @@ pub enum INodeType {
   Other,
 }
 
-pub type UUID = &'static str;
 impl INodeType {
   pub fn is_element(&self) -> bool {
     matches!(self, INodeType::Element)
@@ -165,9 +164,14 @@ pub trait INodeTrait {
   // fn append_child(&mut self);
   // fn remove_child(&mut self, node: BoxDynNode);
   // check if two node are the same
-  fn uuid(&self) -> UUID;
-  fn is(&self, node: &BoxDynNode) -> bool {
-    self.uuid() == node.uuid()
+  fn uuid(&self) -> Option<&str>;
+  fn is(&self, node: &BoxDynNode) -> bool{
+    if let Some(uuid) = self.uuid(){
+      if let Some(o_uuid) = node.uuid(){
+        return uuid == o_uuid;
+      }
+    }
+    false
   }
   // owner document
 }
@@ -310,14 +314,22 @@ impl<'a> NodeList<'a> {
   // unique the nodes
   fn unique<'b>(&self) -> NodeList<'b> {
     let total = self.count();
-    let mut uuids: Vec<&str> = Vec::with_capacity(total);
     let mut result = NodeList::with_capacity(total);
     for node in self.get_ref() {
-      let uuid = node.uuid();
-      if !uuids.contains(&uuid) {
-        result.push(node.cloned());
-        uuids.push(uuid);
+      let is_exists = {
+        let mut flag = false;
+        for cur in result.get_ref(){
+          if cur.is(node){
+            flag = true;
+            break;
+          }
+        } 
+        flag
+      };
+      if is_exists {
+        continue;
       }
+      result.push(node.cloned());
     }
     result
   }
