@@ -222,7 +222,7 @@ impl Pattern for Index {
 }
 
 /// `Nth`
-/// 2n + 1/2n-1/-2n+1/0/1/
+/// 2n/+2n+1/2n-1/-2n+1/+0/-1/2
 #[derive(Debug, Default)]
 pub struct Nth;
 
@@ -230,46 +230,75 @@ impl Pattern for Nth {
   fn matched(&self, chars: &[char]) -> Option<Matched> {
     let rule: RegExp = RegExp {
       cache: true,
-      context: r#"^\s*(?:([-+])?([0-9]|[1-9]\d+)n\s*([+-])\s*)?([0-9]|[1-9]\d+)"#,
+      context: r#"^(?:([-+])?([0-9]|[1-9]\d+)?n(?:\s*([+-])\s*([0-9]|[1-9]\d+))?|([-+])?([0-9]|[1-9]\d+))"#,
     };
     let mut data = HashMap::with_capacity(2);
+    let mut matched_chars:Vec<char> = Vec::new(); 
     if let Some(v) = Pattern::matched(&rule, chars) {
       let rule_data = v.data;
-      let mut index = *rule_data.get("4").expect("the nth's rule must matched.");
-      if let Some(&n) = rule_data.get("2") {
-        let mut n = n;
-        let op_index = *rule_data.get("3").unwrap();
-        if op_index == "-" {
-          index = to_static_str(String::from("-") + index);
-        }
-        if let Some(&op_n) = rule_data.get("1") {
-          if op_n == "-" {
-            n = to_static_str(String::from("-") + n);
+      // groups
+      const MINUS: &str = "-";
+      let only_index = rule_data.get("6").is_some();
+      let index_keys = if only_index{
+        ("6", "5")
+      }else{
+        ("4", "3")
+      };
+      // set index
+      if let Some(&idx) = rule_data.get(index_keys.0){
+        let mut index = String::from(idx);
+        if let Some(&op) = rule_data.get(index_keys.1){
+          if op == MINUS{
+            index = String::from(op) + &index; 
           }
         }
-        data.insert("n", n);
+        data.insert("index", to_static_str(index));
       }
-      data.insert("index", index);
-    } else if Pattern::matched(&vec!['e', 'v', 'e', 'n'], chars).is_some() {
-      data.insert("n", "2");
-      data.insert("index", "0");
-    } else if Pattern::matched(&vec!['o', 'd', 'd'], chars).is_some() {
-      data.insert("n", "2");
-      data.insert("index", "1");
+      // not only index
+      if !only_index{
+        let mut n = *rule_data.get("2").unwrap_or(&"1");
+        if let Some(&op) = rule_data.get("1"){
+          if op == MINUS{
+            n = String::from(op) + n; 
+          }
+        }
+        data.insert("n", to_static_str(n));
+      }
+      matched_chars = v.chars;
+    } else {
+      // maybe 'even' or 'odd'
+      let even = vec!['e', 'v', 'e', 'n'];
+      let odd = vec!['o', 'd', 'd'];
+      if Pattern::matched(&even, chars).is_some() {
+        data.insert("n", "2");
+        data.insert("index", "0");
+        matched_chars = even;
+      } else if Pattern::matched(&odd, chars).is_some() {
+        data.insert("n", "2");
+        data.insert("index", "1");
+        matched_chars = odd;
+      }
     }
     if !data.is_empty() {
       return Some(Matched {
         name: "nth",
         data,
-        ..Default::default()
+        chars: matched_chars
       });
     }
     None
   }
-  //
+  // from params to pattern
   fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
     check_params_return(&[s, p], || Box::new(Nth::default()))
   }
+  // get allowed index
+  // pub fn get_allowed_indexs(n: &str, index: &str, total: usize) -> Vec<usize>{
+  //   let n: isize = n.parse::<isize>().expect("The number of nth's n must exists");
+  //   let index: isize = n.parse::<isize>().expect("The number of nth's index must exists");
+  //   let mut loop_index: isize = 0;
+  //   let mut orig_index = n * isize; 
+  // }
 }
 
 /// RegExp

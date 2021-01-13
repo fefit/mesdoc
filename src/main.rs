@@ -4,6 +4,6 @@ use ntree::selector::Selector;
 
 fn main() {
   ntree::init();
-  let q: Selector = ".haha p > input[name='name'] + :first-child[readonly] #idd > *.a".into();
+  let q: Selector = "p:nth-child(2n+1)".into();
   println!("q is {:?}", q);
 }

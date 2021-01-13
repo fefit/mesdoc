@@ -1,3 +1,5 @@
+use std::vec;
+
 use crate::selector::interface::{INodeType, NodeList};
 use crate::selector::rule::{RuleDefItem, RuleItem};
 const PRIORITY: u32 = 10;
@@ -86,6 +88,7 @@ fn add_last_child(rules: &mut Vec<RuleItem>) {
 	);
 	rules.push(rule.into());
 }
+/// selector:`first-of-type`
 fn add_first_of_type(rules: &mut Vec<RuleItem>) {
 	// first of type
 	let rule = RuleDefItem(
@@ -96,9 +99,26 @@ fn add_first_of_type(rules: &mut Vec<RuleItem>) {
 	);
 	rules.push(rule.into());
 }
+
+/// selector: `nth-child`
+fn add_nth_child(rules: &mut Vec<RuleItem>){
+  let rule = RuleDefItem(
+    ":nth-child({spaces}{nth}{spaces})",
+    PRIORITY, 
+    vec![("nth", 0)],
+    Box::new(|nodes, params| {
+      println!("params:{:?}", params);
+      Ok(nodes.cloned())
+    })
+  );
+  rules.push(rule.into());
+}
+
+
 pub fn init(rules: &mut Vec<RuleItem>) {
 	add_empty(rules);
 	add_first_child(rules);
 	add_last_child(rules);
-	add_first_of_type(rules);
+  add_first_of_type(rules);
+  add_nth_child(rules);
 }
