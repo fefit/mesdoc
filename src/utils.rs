@@ -79,3 +79,116 @@ pub fn is_char_available_in_key(ch: &char) -> bool {
   }
   true
 }
+pub enum RoundType{
+  Floor,
+  Ceil,
+  Round,
+}
+pub fn divide_isize(a: isize, b: isize, round: RoundType) -> isize{
+  // the rust divide method's behavior is same as 'rem'
+  // the value is near 'zero' 
+  // so get the expression '(a/b) * b + (a % b) = a'
+  // 
+  let mut res = a / b;
+  let remainder = a % b;
+  use RoundType::*;
+  match round {
+    Floor => {
+      // -∞ -> 0
+      if res < 0 && remainder != 0{
+        res -= 1;
+      }
+    },
+    Ceil => {
+      // 0 -> ∞
+      if res > 0 && remainder != 0{
+        res += 1;
+      } 
+    },
+    Round => {
+      if res != 0 && remainder != 0 {
+        let symbol = if res < 0{
+          -1
+        }else{
+          1
+        };
+        let total = remainder * 2 - symbol* b;
+        // the result's symbol is same as dividend 'a'
+        if (total >= 0 && a > 0) || (total <= 0 && a < 0){
+          res += symbol; 
+        }
+      }
+    }
+  }
+  res
+}
+
+mod test{
+  use super::{ RoundType, divide_isize};
+  #[test]
+  fn test_divide_isize(){
+    // round
+    // both positive
+    assert_eq!(divide_isize(7, 4, RoundType::Round), 2);
+    assert_eq!(divide_isize(6, 4, RoundType::Round), 2);
+    assert_eq!(divide_isize(5, 4, RoundType::Round), 1);
+    assert_eq!(divide_isize(4, 4, RoundType::Round), 1);
+    // both negative
+    assert_eq!(divide_isize(-7, -4, RoundType::Round), 2);
+    assert_eq!(divide_isize(-6, -4, RoundType::Round), 2);
+    assert_eq!(divide_isize(-5, -4, RoundType::Round), 1);
+    assert_eq!(divide_isize(-4, -4, RoundType::Round), 1);
+    // one positive, one negative
+    assert_eq!(divide_isize(7, -4, RoundType::Round), -2);
+    assert_eq!(divide_isize(6, -4, RoundType::Round), -2);
+    assert_eq!(divide_isize(5, -4, RoundType::Round), -1);
+    assert_eq!(divide_isize(4, -4, RoundType::Round), -1);
+    // one positive, one negative
+    assert_eq!(divide_isize(-7, 4, RoundType::Round), -2);
+    assert_eq!(divide_isize(-6, 4, RoundType::Round), -2);
+    assert_eq!(divide_isize(-5, 4, RoundType::Round), -1);
+    assert_eq!(divide_isize(-4, 4, RoundType::Round), -1);
+    // floor
+    // 1
+    assert_eq!(divide_isize(7, 4, RoundType::Floor), 1); 
+    assert_eq!(divide_isize(6, 4, RoundType::Floor), 1);
+    assert_eq!(divide_isize(5, 4, RoundType::Floor), 1);
+    assert_eq!(divide_isize(4, 4, RoundType::Floor), 1);
+    // 2
+    assert_eq!(divide_isize(-7, -4, RoundType::Floor), 1);
+    assert_eq!(divide_isize(-6, -4, RoundType::Floor), 1);
+    assert_eq!(divide_isize(-5, -4, RoundType::Floor), 1);
+    assert_eq!(divide_isize(-4, -4, RoundType::Floor), 1);
+    // 3
+    assert_eq!(divide_isize(7, -4, RoundType::Floor), -2);
+    assert_eq!(divide_isize(6, -4, RoundType::Floor), -2);
+    assert_eq!(divide_isize(5, -4, RoundType::Floor), -2);
+    assert_eq!(divide_isize(4, -4, RoundType::Floor), -1);
+    // 4
+    assert_eq!(divide_isize(-7, 4, RoundType::Floor), -2);
+    assert_eq!(divide_isize(-6, 4, RoundType::Floor), -2);
+    assert_eq!(divide_isize(-5, 4, RoundType::Floor), -2);
+    assert_eq!(divide_isize(-4, 4, RoundType::Floor), -1);
+    // ceil
+    // 1
+    assert_eq!(divide_isize(7, 4, RoundType::Ceil), 2); 
+    assert_eq!(divide_isize(6, 4, RoundType::Ceil), 2);
+    assert_eq!(divide_isize(5, 4, RoundType::Ceil), 2);
+    assert_eq!(divide_isize(4, 4, RoundType::Ceil), 1);
+    // 2
+    assert_eq!(divide_isize(-7, -4, RoundType::Ceil), 2);
+    assert_eq!(divide_isize(-6, -4, RoundType::Ceil), 2);
+    assert_eq!(divide_isize(-5, -4, RoundType::Ceil), 2);
+    assert_eq!(divide_isize(-4, -4, RoundType::Ceil), 1);
+    // 3
+    assert_eq!(divide_isize(7, -4, RoundType::Ceil), -1);
+    assert_eq!(divide_isize(6, -4, RoundType::Ceil), -1);
+    assert_eq!(divide_isize(5, -4, RoundType::Ceil), -1);
+    assert_eq!(divide_isize(4, -4, RoundType::Ceil), -1);
+    // 4
+    assert_eq!(divide_isize(-7, 4, RoundType::Ceil), -1);
+    assert_eq!(divide_isize(-6, 4, RoundType::Ceil), -1);
+    assert_eq!(divide_isize(-5, 4, RoundType::Ceil), -1);
+    assert_eq!(divide_isize(-4, 4, RoundType::Ceil), -1);
+  }
+}

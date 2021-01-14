@@ -56,16 +56,28 @@ pub trait INodeTrait {
 		None
 	}
 	// find parents
-	fn parent<'b>(&self) -> MaybeResult<'b>;
-	fn children<'b>(&self) -> Result<'b>;
+  fn parent<'b>(&self) -> MaybeResult<'b>;
+  // childs
+  fn child_nodes<'b>(&self) -> Result<'b>;
+	fn children<'b>(&self) -> Result<'b>{
+    let child_nodes = self.child_nodes()?;
+    let mut result = NodeList::with_capacity(child_nodes.length());
+    for node in child_nodes.get_ref(){
+      if let INodeType::Element =  node.node_type(){
+        result.push(node.cloned());
+      }
+    }
+    Ok(result)
+  }
 	// get all childrens
 	fn childrens<'b>(&self) -> Result<'b> {
 		let mut result = self.children()?.cloned();
 		let count = result.length();
 		if count > 0 {
-			let mut descendants = NodeList::with_capacity(5);
+      let mut descendants = NodeList::with_capacity(5);
+      let all_nodes = descendants.get_mut_ref();
 			for c in &result.nodes {
-				descendants.get_mut_ref().extend(c.childrens()?);
+				all_nodes.extend(c.childrens()?);
 			}
 			result.get_mut_ref().extend(descendants);
 		}
@@ -220,7 +232,10 @@ impl<'a> NodeList<'a> {
 	}
 	pub fn length(&self) -> usize {
 		self.nodes.len()
-	}
+  }
+  pub fn is_empty(&self) -> bool{
+    self.length() == 0
+  }
 	// filter some rule
 	pub fn find<'b>(&self, selector: &str) -> Result<'b> {
 		let selector: Selector = selector.into();
