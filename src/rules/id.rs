@@ -1,12 +1,15 @@
-use crate::selector::interface::NodeList;
 use crate::selector::rule::{Rule, RuleItem};
+use crate::selector::{
+	interface::{NodeList, Result},
+	rule::RuleMatchedData,
+};
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule: RuleItem = (
 		"#{identity}",
 		10000,
 		true,
 		vec![("identity", 0)],
-		Box::new(|nodes, params| {
+		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result {
 			let id = Rule::param(&params, "identity").expect("The 'id' selector is not correct");
 			let mut result: NodeList = NodeList::with_capacity(1);
 			if nodes.length() > 0 {

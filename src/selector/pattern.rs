@@ -5,7 +5,9 @@
 * class: .{identity}
 * attribute: [{identity}{rule##"(^|*~$)?=('")"##}]
 */
-use crate::utils::{RoundType, chars_to_int, divide_isize, is_char_available_in_key, to_static_str};
+use crate::utils::{
+	chars_to_int, divide_isize, is_char_available_in_key, to_static_str, RoundType,
+};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::{collections::HashMap, fmt::Debug, usize};
@@ -298,73 +300,79 @@ impl Nth {
 	}
 	// get indexs allowed
 	pub fn get_allowed_indexs(n: Option<&str>, index: Option<&str>, total: usize) -> Vec<usize> {
-    // has n
+		// has n
 		if let Some(n) = n {
 			let n = n.parse::<isize>().unwrap();
 			let index = index
 				.map(|index| index.parse::<isize>().unwrap())
-        .unwrap_or(0);
-      // n == 0
-      if n == 0 {
-        if index > 0 {
-          let index = index as usize;
-          if index <= total {
-            return vec![index-1];
-          }
-        }
-        return vec![];
-      }
-      // n < 0 or n > 0
-      let mut start_loop: isize;
-      let end_loop: isize; 
+				.unwrap_or(0);
+			// n == 0
+			if n == 0 {
+				if index > 0 {
+					let index = index as usize;
+					if index <= total {
+						return vec![index - 1];
+					}
+				}
+				return vec![];
+			}
+			// n < 0 or n > 0
+			let mut start_loop: isize;
+			let end_loop: isize;
 			if n < 0 {
-        // -2n - 1/ -2n + 0
-        if index <= 0 {
-          return vec![];
-        }
-        // -2n + 1
-        if index <= -n {
-          let index = index as usize;
-          if index <= total {
-            return vec![index-1];
-          }
-          return vec![];
-        }
-        start_loop = divide_isize(index - (total as isize),-n, RoundType::Ceil);
-        end_loop = divide_isize(index - 1, -n, RoundType::Floor);
-      } else {
-        // n > 0
-        start_loop = divide_isize(1 - index, n, RoundType::Ceil);
-        end_loop = divide_isize( (total as isize) - index, n, RoundType::Floor);
-      }
-      println!("end_loop {:?}, start:{:?}, index: {:?}", end_loop, start_loop, index);
-      // set start_loop min 0
-      if start_loop < 0 { 
-        start_loop = 0; 
-      }
-      // when start_loop >= end_loop, no index is allowed
-      if start_loop > end_loop {
-        return vec![];
-      }
-      let start = start_loop as usize;
-      let end = end_loop as usize;
-      let mut allow_indexs = Vec::with_capacity((end - start + 1) as usize);
-      for i in start..=end {
-        let cur_index = (i as isize * n + index) as usize;
-        if cur_index < 1{
-          continue;
-        }
-        // last index need -1 for real list index
-        allow_indexs.push(cur_index - 1);
-      }
-      return allow_indexs;
-		} 
-    // only index
-    let index = index.expect("Nth must have 'index' value when 'n' is not setted.").parse::<isize>().expect("Nth's index is not a correct number");
-    if index <= 0 || index > (total as isize){
-      return vec![];
-    }
-    return vec![(index - 1) as usize];
+				// -2n - 1/ -2n + 0
+				if index <= 0 {
+					return vec![];
+				}
+				// -2n + 1
+				if index <= -n {
+					let index = index as usize;
+					if index <= total {
+						return vec![index - 1];
+					}
+					return vec![];
+				}
+				start_loop = divide_isize(index - (total as isize), -n, RoundType::Ceil);
+				end_loop = divide_isize(index - 1, -n, RoundType::Floor);
+			} else {
+				// n > 0
+				start_loop = divide_isize(1 - index, n, RoundType::Ceil);
+				end_loop = divide_isize((total as isize) - index, n, RoundType::Floor);
+			}
+			println!(
+				"end_loop {:?}, start:{:?}, index: {:?}",
+				end_loop, start_loop, index
+			);
+			// set start_loop min 0
+			if start_loop < 0 {
+				start_loop = 0;
+			}
+			// when start_loop >= end_loop, no index is allowed
+			if start_loop > end_loop {
+				return vec![];
+			}
+			let start = start_loop as usize;
+			let end = end_loop as usize;
+			let mut allow_indexs = Vec::with_capacity((end - start + 1) as usize);
+			for i in start..=end {
+				let cur_index = (i as isize * n + index) as usize;
+				if cur_index < 1 {
+					continue;
+				}
+				// last index need -1 for real list index
+				allow_indexs.push(cur_index - 1);
+			}
+			return allow_indexs;
+		}
+		// only index
+		let index = index
+			.expect("Nth must have 'index' value when 'n' is not setted.")
+			.parse::<isize>()
+			.expect("Nth's index is not a correct number");
+		if index <= 0 || index > (total as isize) {
+			return vec![];
+		}
+		return vec![(index - 1) as usize];
 	}
 }
 

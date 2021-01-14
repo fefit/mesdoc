@@ -1,11 +1,14 @@
-use crate::selector::interface::{IAttrValue, NodeList};
 use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
+use crate::selector::{
+	interface::{IAttrValue, NodeList, Result},
+	rule::RuleMatchedData,
+};
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule = RuleDefItem(
 		".{identity}",
 		1000,
 		vec![("identity", 0)],
-		Box::new(|nodes, params| {
+		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result {
 			let class_name =
 				Rule::param(&params, "identity").expect("The 'class' selector is not correct");
 			let mut result: NodeList = NodeList::new();

@@ -1,20 +1,21 @@
-use crate::selector::interface::NodeList;
+use crate::selector::interface::{NodeList, Result};
+use crate::selector::rule::RuleMatchedData;
 use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
 pub fn init(rules: &mut Vec<RuleItem>) {
-  let rule = RuleDefItem(
-    "{identity}",
-    100,
-    vec![("identity", 0)],
-    Box::new(|nodes, params| {
-      let name = Rule::param(&params, "identity").expect("The 'id' selector is not correct");
-      let mut result: NodeList = NodeList::new();
-      for node in nodes.get_ref() {
-        if node.tag_name() == name {
-          result.push(node.cloned());
-        }
-      }
-      Ok(result)
-    }),
-  );
-  rules.push(rule.into());
+	let rule = RuleDefItem(
+		"{identity}",
+		100,
+		vec![("identity", 0)],
+		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result {
+			let name = Rule::param(&params, "identity").expect("The 'id' selector is not correct");
+			let mut result: NodeList = NodeList::new();
+			for node in nodes.get_ref() {
+				if node.tag_name() == name {
+					result.push(node.cloned());
+				}
+			}
+			Ok(result)
+		}),
+	);
+	rules.push(rule.into());
 }

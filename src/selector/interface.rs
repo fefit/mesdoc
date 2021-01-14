@@ -8,6 +8,7 @@ use super::{Combinator, QueryProcess, Selector, SelectorSegment};
 pub type Result<'a> = StdResult<NodeList<'a>, &'static str>;
 pub type MaybeResult<'a> = StdResult<Option<BoxDynNode<'a>>, &'static str>;
 pub type MaybeDocResult = StdResult<Option<Box<dyn IDocumentTrait>>, &'static str>;
+pub type EmptyResult = StdResult<(), &'static str>;
 pub type BoxDynNode<'a> = Box<dyn INodeTrait + 'a>;
 #[derive(Debug)]
 pub enum IAttrValue {
@@ -56,26 +57,26 @@ pub trait INodeTrait {
 		None
 	}
 	// find parents
-  fn parent<'b>(&self) -> MaybeResult<'b>;
-  // childs
-  fn child_nodes<'b>(&self) -> Result<'b>;
-	fn children<'b>(&self) -> Result<'b>{
-    let child_nodes = self.child_nodes()?;
-    let mut result = NodeList::with_capacity(child_nodes.length());
-    for node in child_nodes.get_ref(){
-      if let INodeType::Element =  node.node_type(){
-        result.push(node.cloned());
-      }
-    }
-    Ok(result)
-  }
+	fn parent<'b>(&self) -> MaybeResult<'b>;
+	// childs
+	fn child_nodes<'b>(&self) -> Result<'b>;
+	fn children<'b>(&self) -> Result<'b> {
+		let child_nodes = self.child_nodes()?;
+		let mut result = NodeList::with_capacity(child_nodes.length());
+		for node in child_nodes.get_ref() {
+			if let INodeType::Element = node.node_type() {
+				result.push(node.cloned());
+			}
+		}
+		Ok(result)
+	}
 	// get all childrens
 	fn childrens<'b>(&self) -> Result<'b> {
 		let mut result = self.children()?.cloned();
 		let count = result.length();
 		if count > 0 {
-      let mut descendants = NodeList::with_capacity(5);
-      let all_nodes = descendants.get_mut_ref();
+			let mut descendants = NodeList::with_capacity(5);
+			let all_nodes = descendants.get_mut_ref();
 			for c in &result.nodes {
 				all_nodes.extend(c.childrens()?);
 			}
@@ -232,10 +233,10 @@ impl<'a> NodeList<'a> {
 	}
 	pub fn length(&self) -> usize {
 		self.nodes.len()
-  }
-  pub fn is_empty(&self) -> bool{
-    self.length() == 0
-  }
+	}
+	pub fn is_empty(&self) -> bool {
+		self.length() == 0
+	}
 	// filter some rule
 	pub fn find<'b>(&self, selector: &str) -> Result<'b> {
 		let selector: Selector = selector.into();
@@ -372,8 +373,7 @@ impl<'a> NodeList<'a> {
 			} else {
 				match comb {
 					ChildrenAll => {
-						// breadth first search, keep the
-						let mut all_childs: Vec<NodeList> = Vec::with_capacity(node_list.length());
+						// depth first search, keep the appear order
 						for node in node_list.get_ref() {
 							// get children
 							let childs = node.children()?;
@@ -384,13 +384,11 @@ impl<'a> NodeList<'a> {
 								if match_childs.length() > 0 {
 									cur_result.get_mut_ref().extend(match_childs);
 								}
-								// for traversal
-								all_childs.push(childs);
+								let sub_childs = NodeList::select(&childs, cur_rule)?;
+								if !sub_childs.is_empty() {
+									cur_result.get_mut_ref().extend(sub_childs);
+								}
 							}
-						}
-						for childs in all_childs {
-							let sub_childs = NodeList::select(&childs, cur_rule)?;
-							cur_result.get_mut_ref().extend(sub_childs);
 						}
 					}
 					Combinator::Children => {
