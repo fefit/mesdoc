@@ -20,7 +20,7 @@ pub type FromParamsFn =
 	Box<dyn Fn(&str, &str) -> Result<Box<dyn Pattern>, String> + Send + 'static>;
 lazy_static! {
 	static ref REGEXS: Mutex<HashMap<&'static str, Arc<Regex>>> = Mutex::new(HashMap::new());
-  static ref PATTERNS: Mutex<HashMap<&'static str, FromParamsFn>> = Mutex::new(HashMap::new());
+	static ref PATTERNS: Mutex<HashMap<&'static str, FromParamsFn>> = Mutex::new(HashMap::new());
 }
 
 fn no_implemented(name: &str) -> ! {
@@ -66,7 +66,9 @@ impl Pattern for &[char] {
 		}
 		let mut result: Vec<char> = Vec::with_capacity(total);
 		for (index, &ch) in self.iter().enumerate() {
-			let cur = chars.get(index).expect("Pattern for slice char's length must great than target's chars.z");
+			let cur = chars
+				.get(index)
+				.expect("Pattern for slice char's length must great than target's chars.z");
 			if ch == *cur {
 				result.push(ch);
 			} else {
@@ -85,32 +87,6 @@ impl Pattern for Vec<char> {
 		self.as_slice().matched(chars)
 	}
 }
-
-#[derive(Debug, Default)]
-pub struct FirstOrLast;
-
-impl Pattern for FirstOrLast{
-  fn matched(&self, chars: &[char]) -> Option<Matched> {
-    let name: &str = "first_or_last";
-    if let Some(matched) = Pattern::matched(&vec!['f','i','r','s','t'], chars){
-      return Some(Matched{
-        name,
-        ..matched
-      });
-    } else if let Some(matched) = Pattern::matched(&vec!['l', 'a', 's', 't'], chars){
-      return Some(Matched{
-        name,
-        ..matched
-      });
-    }
-    None
-	}
-	// from_params
-	fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
-		check_params_return(&[s, p], || Box::new(FirstOrLast::default()))
-	}
-}
-
 
 /// Identity
 #[derive(Debug, Default)]
@@ -326,7 +302,12 @@ impl Nth {
 		None
 	}
 	// get indexs allowed
-	pub fn get_allowed_indexs(n: Option<&str>, index: Option<&str>, total: usize) -> Vec<usize> {
+	pub fn get_allowed_indexs(
+		n: Option<&str>,
+		index: Option<&str>,
+		total: usize,
+		asc: bool,
+	) -> Vec<usize> {
 		// has n
 		if let Some(n) = n {
 			let n = n.parse::<isize>().unwrap();
@@ -338,7 +319,11 @@ impl Nth {
 				if index > 0 {
 					let index = index as usize;
 					if index <= total {
-						return vec![index - 1];
+						if asc {
+							return vec![index - 1];
+						} else {
+							return vec![total - index];
+						}
 					}
 				}
 				return vec![];
@@ -355,7 +340,11 @@ impl Nth {
 				if index <= -n {
 					let index = index as usize;
 					if index <= total {
-						return vec![index - 1];
+						if asc {
+							return vec![index - 1];
+						} else {
+							return vec![total - index];
+						}
 					}
 					return vec![];
 				}
@@ -377,13 +366,25 @@ impl Nth {
 			let start = start_loop as usize;
 			let end = end_loop as usize;
 			let mut allow_indexs = Vec::with_capacity((end - start + 1) as usize);
-			for i in start..=end {
-				let cur_index = (i as isize * n + index) as usize;
-				if cur_index < 1 {
-					continue;
+			if asc {
+				for i in start..=end {
+					let cur_index = (i as isize * n + index) as usize;
+					if cur_index < 1 {
+						continue;
+					}
+					// last index need -1 for real list index
+					allow_indexs.push(cur_index - 1);
 				}
-				// last index need -1 for real list index
-				allow_indexs.push(cur_index - 1);
+			} else {
+				for i in start..=end {
+					let cur_index = (total as isize) - (i as isize * n + index);
+					if cur_index < 0 {
+						continue;
+					}
+					// last index need -1 for real list index
+					allow_indexs.push(cur_index as usize);
+				}
+				allow_indexs.reverse();
 			}
 			return allow_indexs;
 		}
@@ -395,7 +396,10 @@ impl Nth {
 		if index <= 0 || index > (total as isize) {
 			return vec![];
 		}
-		return vec![(index - 1) as usize];
+		if asc {
+			return vec![(index - 1) as usize];
+		}
+		return vec![total - (index as usize)];
 	}
 }
 
@@ -484,8 +488,7 @@ pub(crate) fn init() {
 	add_pattern("attr_key", Box::new(AttrKey::from_params));
 	add_pattern("index", Box::new(Index::from_params));
 	add_pattern("nth", Box::new(Nth::from_params));
-  add_pattern("regexp", Box::new(RegExp::from_params));
-  add_pattern("first_or_last", Box::new(FirstOrLast::from_params));
+	add_pattern("regexp", Box::new(RegExp::from_params));
 }
 
 pub fn to_pattern(name: &str, s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {

@@ -1,13 +1,16 @@
 use std::collections::HashSet;
 
-use crate::{selector::{
-	interface::EmptyResult,
-	rule::{Rule, RuleDefItem, RuleItem},
-}, utils::retain_by_index};
 use crate::selector::{
 	interface::{BoxDynNode, INodeType, NodeList, Result},
 	pattern::Nth,
 	rule::RuleMatchedData,
+};
+use crate::{
+	selector::{
+		interface::EmptyResult,
+		rule::{Rule, RuleDefItem, RuleItem},
+	},
+	utils::retain_by_index,
 };
 
 const PRIORITY: u32 = 10;
@@ -47,31 +50,23 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
-
-fn get_first_or_last(params: &RuleMatchedData)->&str{
-  Rule::param(&params, "first_or_last").expect("first_or_last param must be 'first' or 'last'")
-}
-
-/// pseudo selector `:first-child,:last-child`
-fn pseudo_first_or_last_child(rules: &mut Vec<RuleItem>) {
-	// last_child
-	let rule = RuleDefItem(
-		":{first_or_last}-child",
+// make rule for ':first-child', ':last-child'
+fn make_first_or_last_child(selector: &'static str, is_first: bool) -> RuleDefItem {
+	RuleDefItem(
+		selector,
 		PRIORITY,
-		vec![("first_or_last", 0)],
-		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result {
-      let first_or_last = get_first_or_last(params);
-      let is_first = first_or_last == "first";
-      let mut result = NodeList::with_capacity(DEF_NODES_LEN);
-      let get_index = if is_first{
-        |_: usize| 0
-      } else{
-        |total:usize| total - 1
-      };
+		vec![],
+		Box::new(move |nodes: &NodeList, _: &RuleMatchedData| -> Result {
+			let mut result = NodeList::with_capacity(DEF_NODES_LEN);
+			let get_index = if is_first {
+				|_: usize| 0
+			} else {
+				|total: usize| total - 1
+			};
 			for node in nodes.get_ref() {
 				if let Some(parent) = node.parent()? {
-          let childs = parent.children()?;
-          let index = get_index(childs.length());
+					let childs = parent.children()?;
+					let index = get_index(childs.length());
 					if let Some(child) = childs.get(index) {
 						if node.is(&child) {
 							result.push(node.cloned());
@@ -81,7 +76,19 @@ fn pseudo_first_or_last_child(rules: &mut Vec<RuleItem>) {
 			}
 			Ok(result)
 		}),
-	);
+	)
+}
+
+/// pseudo selector `:first-child,:last-child`
+fn pseudo_first_child(rules: &mut Vec<RuleItem>) {
+	// last_child
+	let rule = make_first_or_last_child(":first-child", true);
+	rules.push(rule.into());
+}
+
+fn pseudo_last_child(rules: &mut Vec<RuleItem>) {
+	// last_child
+	let rule = make_first_or_last_child(":last-child", false);
 	rules.push(rule.into());
 }
 
@@ -117,7 +124,7 @@ fn process(
 	}
 }
 
-//
+// group siblings
 struct SiblingsNodeData<'a> {
 	siblings: Vec<BoxDynNode<'a>>,
 	allow_indexs: Option<Vec<usize>>,
@@ -160,7 +167,7 @@ where
 				// init the siblings, allow_index, prev_parent
 				data.siblings = vec![node.cloned()];
 				data.parent = Some(parent.cloned());
-				data.allow_indexs = allow_indexs_fn(total);
+				data.allow_indexs = allow_indexs_fn(parent.children()?.length());
 			}
 			// when is last
 			if is_last {
@@ -171,52 +178,60 @@ where
 	}
 	Ok(())
 }
-
-/// pseudo selector: `:nth-child`
-fn pseudo_nth_child(rules: &mut Vec<RuleItem>) {
-	let rule = RuleDefItem(
-		":nth-child({spaces}{nth}{spaces})",
+// make for 'nth-child','nth-last-child'
+fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem {
+	RuleDefItem(
+		selector,
 		PRIORITY,
 		vec![("nth", 0)],
-		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result {
-			let n = Rule::param(&params, ("nth", 0, "n"));
-			let index = Rule::param(&params, ("nth", 0, "index"));
-			let mut result: NodeList = NodeList::with_capacity(DEF_NODES_LEN);
-			group_siblings_then_done(
-				nodes,
-				|total: usize| Some(Nth::get_allowed_indexs(n, index, total)),
-				|data: &mut SiblingsNodeData| -> EmptyResult {
-					process(
-						&mut data.siblings,
-						&data.allow_indexs.as_ref().expect("allow indexs must set"),
-						&data
-							.parent
-							.as_ref()
-							.expect("parent must set in callback")
-							.children()?,
-						&mut result,
-					);
-					Ok(())
-				},
-			)?;
-			Ok(result)
-		}),
-	);
+		Box::new(
+			move |nodes: &NodeList, params: &RuleMatchedData| -> Result {
+				let n = Rule::param(&params, ("nth", 0, "n"));
+				let index = Rule::param(&params, ("nth", 0, "index"));
+				let mut result: NodeList = NodeList::with_capacity(DEF_NODES_LEN);
+				group_siblings_then_done(
+					nodes,
+					|total: usize| Some(Nth::get_allowed_indexs(n, index, total, asc)),
+					|data: &mut SiblingsNodeData| -> EmptyResult {
+						println!("allow_indexs:{:?}", data.allow_indexs);
+						process(
+							&mut data.siblings,
+							&data.allow_indexs.as_ref().expect("allow indexs must set"),
+							&data
+								.parent
+								.as_ref()
+								.expect("parent must set in callback")
+								.children()?,
+							&mut result,
+						);
+						Ok(())
+					},
+				)?;
+				Ok(result)
+			},
+		),
+	)
+}
+/// pseudo selector: `:nth-child`
+fn pseudo_nth_child(rules: &mut Vec<RuleItem>) {
+	let rule = make_asc_or_desc_nth_child(":nth-child({spaces}{nth}{spaces})", true);
 	rules.push(rule.into());
 }
 
+/// pseudo selector: `:nth-child`
+fn pseudo_nth_last_child(rules: &mut Vec<RuleItem>) {
+	let rule = make_asc_or_desc_nth_child(":nth-last-child({spaces}{nth}{spaces})", false);
+	rules.push(rule.into());
+}
 
-
-/// pseudo selector:`:first-of-type,:last-of-type`
-fn pseudo_first_or_last_of_type(rules: &mut Vec<RuleItem>) {
+// make for ':first-of-type', ':last-of-type'
+fn make_first_or_last_of_type(selector: &'static str, is_first: bool) -> RuleDefItem {
 	// last of type
-	let rule = RuleDefItem(
-		":{first_or_last}-of-type",
+	RuleDefItem(
+		selector,
 		PRIORITY,
-		vec![("first_or_last", 0)],
-		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result {
-      let first_or_last = get_first_or_last(params);
-      let is_first = first_or_last == "first";
+		vec![],
+		Box::new(move |nodes: &NodeList, _: &RuleMatchedData| -> Result {
 			let mut result: NodeList = NodeList::with_capacity(DEF_NODES_LEN);
 			group_siblings_then_done(
 				nodes,
@@ -226,11 +241,16 @@ fn pseudo_first_or_last_of_type(rules: &mut Vec<RuleItem>) {
 						.parent
 						.as_ref()
 						.expect("parent must set in callback")
-            .children()?;
-          let mut names: HashSet<String> = HashSet::with_capacity(5);
-          // handle 
-          fn handle(data: &mut SiblingsNodeData, result: &mut NodeList, child: &BoxDynNode, names:&mut HashSet<String>){
-            let name = child.tag_name();
+						.children()?;
+					let mut names: HashSet<String> = HashSet::with_capacity(5);
+					// handle
+					fn handle(
+						data: &mut SiblingsNodeData,
+						result: &mut NodeList,
+						child: &BoxDynNode,
+						names: &mut HashSet<String>,
+					) {
+						let name = child.tag_name();
 						// not the first type
 						if names.get(name).is_some() {
 							return;
@@ -252,30 +272,72 @@ fn pseudo_first_or_last_of_type(rules: &mut Vec<RuleItem>) {
 							// delete the not matched
 							retain_by_index(&mut data.siblings, &exclude_indexs);
 						}
-          }
-          if is_first{ 
-            for child in childs.get_ref() {
-              handle(data, &mut result, child, &mut names);
-            }
-          } else{
-            data.siblings.reverse();
-            for child in childs.get_ref().iter().rev(){
-              handle(data, &mut result, child, &mut names);
-            }
-          }
+					}
+					if is_first {
+						for child in childs.get_ref() {
+							handle(data, &mut result, child, &mut names);
+						}
+					} else {
+						data.siblings.reverse();
+						for child in childs.get_ref().iter().rev() {
+							handle(data, &mut result, child, &mut names);
+						}
+					}
 					Ok(())
 				},
 			)?;
+			Ok(result)
+		}),
+	)
+}
+
+/// pseudo selector:`:first-of-type,:last-of-type`
+fn pseudo_first_of_type(rules: &mut Vec<RuleItem>) {
+	// last of type
+	let rule = make_first_or_last_of_type(":first-of-type", true);
+	rules.push(rule.into());
+}
+
+/// pseudo selector:`:first-of-type,:last-of-type`
+fn pseudo_last_of_type(rules: &mut Vec<RuleItem>) {
+	// last of type
+	let rule = make_first_or_last_of_type(":last-of-type", false);
+	rules.push(rule.into());
+}
+
+/// pseudo selector: `only-child`
+fn pseudo_only_child(rules: &mut Vec<RuleItem>) {
+	let rule = RuleDefItem(
+		":only-child",
+		PRIORITY,
+		vec![],
+		Box::new(move |nodes: &NodeList, _| -> Result {
+			let mut result = NodeList::with_capacity(DEF_NODES_LEN);
+			for node in nodes.get_ref() {
+				if let Some(parent) = node.parent()? {
+					let childs = parent.children()?;
+					if childs.length() == 1 {
+						result.push(node.cloned());
+					}
+				}
+			}
 			Ok(result)
 		}),
 	);
 	rules.push(rule.into());
 }
 
-
 pub fn init(rules: &mut Vec<RuleItem>) {
 	pseudo_empty(rules);
-	pseudo_first_or_last_child(rules);
+	// first-child, last-child
+	pseudo_first_child(rules);
+	pseudo_last_child(rules);
+	// only-child
+	pseudo_only_child(rules);
+	// nth-child,nth-last-child
 	pseudo_nth_child(rules);
-  pseudo_first_or_last_of_type(rules);
+	pseudo_nth_last_child(rules);
+	// first-of-type,last-of-type
+	pseudo_first_of_type(rules);
+	pseudo_last_of_type(rules);
 }

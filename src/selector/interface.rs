@@ -179,9 +179,6 @@ pub trait INodeTrait {
 	fn outer_html(&self) -> &str;
 	// text
 	fn text_content(&self) -> &str;
-	fn inner_text(&self) -> &str {
-		self.text_content()
-	}
 	fn text(&self) -> &str {
 		self.text_content()
 	}
@@ -584,7 +581,7 @@ impl<'a> NodeList<'a> {
 	pub fn text(&self) -> &str {
 		let mut result = String::with_capacity(50);
 		for node in self.get_ref() {
-			result.push_str(node.inner_text());
+			result.push_str(node.text_content());
 		}
 		to_static_str(result)
 	}
