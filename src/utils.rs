@@ -123,6 +123,21 @@ pub fn divide_isize(a: isize, b: isize, round: RoundType) -> isize{
   res
 }
 
+pub fn retain_by_index<T>(v: &mut Vec<T>, indexs: &[usize]){
+  if indexs.len() < 30{
+    for (i, index) in indexs.iter().enumerate(){
+      v.remove(index - i);
+    }
+  } else {
+    let mut loop_index:usize = 0;
+    v.retain(|_|{
+       let removed = indexs.contains(&loop_index);
+       loop_index +=1;
+       !removed
+    });
+  }
+}
+
 mod test{
   use super::{ RoundType, divide_isize};
   #[test]
@@ -192,3 +207,4 @@ mod test{
     assert_eq!(divide_isize(-4, 4, RoundType::Ceil), -1);
   }
 }
+

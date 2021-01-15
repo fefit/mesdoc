@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use crate::selector::{
+use crate::{selector::{
 	interface::EmptyResult,
 	rule::{Rule, RuleDefItem, RuleItem},
-};
+}, utils::retain_by_index};
 use crate::selector::{
 	interface::{BoxDynNode, INodeType, NodeList, Result},
 	pattern::Nth,
@@ -47,45 +47,33 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
-/// pseudo selector `:first_child`
-fn pseudo_first_child(rules: &mut Vec<RuleItem>) {
-	// first-child
-	let rule = RuleDefItem(
-		":first-child",
-		PRIORITY,
-		vec![],
-		Box::new(|nodes: &NodeList, _| -> Result {
-			let mut result = NodeList::with_capacity(DEF_NODES_LEN);
-			for node in nodes.get_ref() {
-				if let Some(parent) = node.parent()? {
-					let childs = parent.children()?;
-					if let Some(first_child) = childs.get(0) {
-						if node.is(&first_child) {
-							result.push(node.cloned());
-						}
-					}
-				}
-			}
-			Ok(result)
-		}),
-	);
-	rules.push(rule.into());
+
+fn get_first_or_last(params: &RuleMatchedData)->&str{
+  Rule::param(&params, "first_or_last").expect("first_or_last param must be 'first' or 'last'")
 }
 
-/// pseudo selector `:last-child`
-fn pseudo_last_child(rules: &mut Vec<RuleItem>) {
+/// pseudo selector `:first-child,:last-child`
+fn pseudo_first_or_last_child(rules: &mut Vec<RuleItem>) {
 	// last_child
 	let rule = RuleDefItem(
-		":last-child",
+		":{first_or_last}-child",
 		PRIORITY,
-		vec![],
-		Box::new(|nodes: &NodeList, _| -> Result {
-			let mut result = NodeList::with_capacity(DEF_NODES_LEN);
+		vec![("first_or_last", 0)],
+		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result {
+      let first_or_last = get_first_or_last(params);
+      let is_first = first_or_last == "first";
+      let mut result = NodeList::with_capacity(DEF_NODES_LEN);
+      let get_index = if is_first{
+        |_: usize| 0
+      } else{
+        |total:usize| total - 1
+      };
 			for node in nodes.get_ref() {
 				if let Some(parent) = node.parent()? {
-					let childs = parent.children()?;
-					if let Some(last_child) = childs.get(childs.length() - 1) {
-						if node.is(&last_child) {
+          let childs = parent.children()?;
+          let index = get_index(childs.length());
+					if let Some(child) = childs.get(index) {
+						if node.is(&child) {
 							result.push(node.cloned());
 						}
 					}
@@ -217,14 +205,18 @@ fn pseudo_nth_child(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
-/// pseudo selector:`:first-of-type`
-fn pseudo_first_of_type(rules: &mut Vec<RuleItem>) {
-	// first of type
+
+
+/// pseudo selector:`:first-of-type,:last-of-type`
+fn pseudo_first_or_last_of_type(rules: &mut Vec<RuleItem>) {
+	// last of type
 	let rule = RuleDefItem(
-		":first-of-type",
+		":{first_or_last}-of-type",
 		PRIORITY,
-		vec![],
-		Box::new(|nodes: &NodeList, _| -> Result {
+		vec![("first_or_last", 0)],
+		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result {
+      let first_or_last = get_first_or_last(params);
+      let is_first = first_or_last == "first";
 			let mut result: NodeList = NodeList::with_capacity(DEF_NODES_LEN);
 			group_siblings_then_done(
 				nodes,
@@ -234,16 +226,17 @@ fn pseudo_first_of_type(rules: &mut Vec<RuleItem>) {
 						.parent
 						.as_ref()
 						.expect("parent must set in callback")
-						.children()?;
-					let mut tag_names: HashSet<&str> = HashSet::with_capacity(5);
-					for child in childs.get_ref() {
-						let name = child.tag_name();
+            .children()?;
+          let mut names: HashSet<String> = HashSet::with_capacity(5);
+          // handle 
+          fn handle(data: &mut SiblingsNodeData, result: &mut NodeList, child: &BoxDynNode, names:&mut HashSet<String>){
+            let name = child.tag_name();
 						// not the first type
-						if tag_names.get(name).is_some() {
-							continue;
+						if names.get(name).is_some() {
+							return;
 						}
 						// the first type of the name tag
-						tag_names.insert(name);
+						names.insert(String::from(name));
 						let mut exclude_indexs: Vec<usize> = Vec::with_capacity(2);
 						for (i, node) in data.siblings.iter().enumerate() {
 							let cur_name = node.tag_name();
@@ -257,11 +250,19 @@ fn pseudo_first_of_type(rules: &mut Vec<RuleItem>) {
 						}
 						if !exclude_indexs.is_empty() {
 							// delete the not matched
-							for (i, index) in exclude_indexs.iter().enumerate() {
-								data.siblings.remove(index - i);
-							}
+							retain_by_index(&mut data.siblings, &exclude_indexs);
 						}
-					}
+          }
+          if is_first{ 
+            for child in childs.get_ref() {
+              handle(data, &mut result, child, &mut names);
+            }
+          } else{
+            data.siblings.reverse();
+            for child in childs.get_ref().iter().rev(){
+              handle(data, &mut result, child, &mut names);
+            }
+          }
 					Ok(())
 				},
 			)?;
@@ -271,10 +272,10 @@ fn pseudo_first_of_type(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
+
 pub fn init(rules: &mut Vec<RuleItem>) {
 	pseudo_empty(rules);
-	pseudo_first_child(rules);
-	pseudo_last_child(rules);
+	pseudo_first_or_last_child(rules);
 	pseudo_nth_child(rules);
-	pseudo_first_of_type(rules);
+  pseudo_first_or_last_of_type(rules);
 }

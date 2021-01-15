@@ -232,6 +232,7 @@ impl From<&str> for Selector {
       // optimize groups to query process
       selector.optimize(groups);
     }
+    println!("selector is {:?}", selector);
     selector
   }
 }

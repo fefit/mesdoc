@@ -20,7 +20,7 @@ pub type FromParamsFn =
 	Box<dyn Fn(&str, &str) -> Result<Box<dyn Pattern>, String> + Send + 'static>;
 lazy_static! {
 	static ref REGEXS: Mutex<HashMap<&'static str, Arc<Regex>>> = Mutex::new(HashMap::new());
-	static ref PATTERNS: Mutex<HashMap<&'static str, FromParamsFn>> = Mutex::new(HashMap::new());
+  static ref PATTERNS: Mutex<HashMap<&'static str, FromParamsFn>> = Mutex::new(HashMap::new());
 }
 
 fn no_implemented(name: &str) -> ! {
@@ -66,7 +66,7 @@ impl Pattern for &[char] {
 		}
 		let mut result: Vec<char> = Vec::with_capacity(total);
 		for (index, &ch) in self.iter().enumerate() {
-			let cur = unsafe { chars.get_unchecked(index) };
+			let cur = chars.get(index).expect("Pattern for slice char's length must great than target's chars.z");
 			if ch == *cur {
 				result.push(ch);
 			} else {
@@ -85,6 +85,33 @@ impl Pattern for Vec<char> {
 		self.as_slice().matched(chars)
 	}
 }
+
+#[derive(Debug, Default)]
+pub struct FirstOrLast;
+
+impl Pattern for FirstOrLast{
+  fn matched(&self, chars: &[char]) -> Option<Matched> {
+    let name: &str = "first_or_last";
+    if let Some(matched) = Pattern::matched(&vec!['f','i','r','s','t'], chars){
+      return Some(Matched{
+        name,
+        ..matched
+      });
+    } else if let Some(matched) = Pattern::matched(&vec!['l', 'a', 's', 't'], chars){
+      return Some(Matched{
+        name,
+        ..matched
+      });
+    }
+    None
+	}
+	// from_params
+	fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+		check_params_return(&[s, p], || Box::new(FirstOrLast::default()))
+	}
+}
+
+
 /// Identity
 #[derive(Debug, Default)]
 pub struct Identity(bool);
@@ -339,10 +366,6 @@ impl Nth {
 				start_loop = divide_isize(1 - index, n, RoundType::Ceil);
 				end_loop = divide_isize((total as isize) - index, n, RoundType::Floor);
 			}
-			println!(
-				"end_loop {:?}, start:{:?}, index: {:?}",
-				end_loop, start_loop, index
-			);
 			// set start_loop min 0
 			if start_loop < 0 {
 				start_loop = 0;
@@ -461,7 +484,8 @@ pub(crate) fn init() {
 	add_pattern("attr_key", Box::new(AttrKey::from_params));
 	add_pattern("index", Box::new(Index::from_params));
 	add_pattern("nth", Box::new(Nth::from_params));
-	add_pattern("regexp", Box::new(RegExp::from_params));
+  add_pattern("regexp", Box::new(RegExp::from_params));
+  add_pattern("first_or_last", Box::new(FirstOrLast::from_params));
 }
 
 pub fn to_pattern(name: &str, s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {

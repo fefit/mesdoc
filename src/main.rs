@@ -4,6 +4,6 @@ use ntree::{self, rules};
 
 fn main() {
 	ntree::init();
-	let q: Selector = "p:nth-child(n - 1)".into();
+	let q: Selector = "p:first-of-type".into();
 	println!("q is {:?}", q);
 }
