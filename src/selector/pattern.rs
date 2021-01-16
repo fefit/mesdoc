@@ -302,12 +302,7 @@ impl Nth {
 		None
 	}
 	// get indexs allowed
-	pub fn get_allowed_indexs(
-		n: Option<&str>,
-		index: Option<&str>,
-		total: usize,
-		asc: bool,
-	) -> Vec<usize> {
+	pub fn get_allowed_indexs(n: Option<&str>, index: Option<&str>, total: usize) -> Vec<usize> {
 		// has n
 		if let Some(n) = n {
 			let n = n.parse::<isize>().unwrap();
@@ -319,11 +314,7 @@ impl Nth {
 				if index > 0 {
 					let index = index as usize;
 					if index <= total {
-						if asc {
-							return vec![index - 1];
-						} else {
-							return vec![total - index];
-						}
+						return vec![index - 1];
 					}
 				}
 				return vec![];
@@ -340,11 +331,7 @@ impl Nth {
 				if index <= -n {
 					let index = index as usize;
 					if index <= total {
-						if asc {
-							return vec![index - 1];
-						} else {
-							return vec![total - index];
-						}
+						return vec![index - 1];
 					}
 					return vec![];
 				}
@@ -366,25 +353,13 @@ impl Nth {
 			let start = start_loop as usize;
 			let end = end_loop as usize;
 			let mut allow_indexs = Vec::with_capacity((end - start + 1) as usize);
-			if asc {
-				for i in start..=end {
-					let cur_index = (i as isize * n + index) as usize;
-					if cur_index < 1 {
-						continue;
-					}
-					// last index need -1 for real list index
-					allow_indexs.push(cur_index - 1);
+			for i in start..=end {
+				let cur_index = (i as isize * n + index) as usize;
+				if cur_index < 1 {
+					continue;
 				}
-			} else {
-				for i in start..=end {
-					let cur_index = (total as isize) - (i as isize * n + index);
-					if cur_index < 0 {
-						continue;
-					}
-					// last index need -1 for real list index
-					allow_indexs.push(cur_index as usize);
-				}
-				allow_indexs.reverse();
+				// last index need -1 for real list index
+				allow_indexs.push(cur_index - 1);
 			}
 			return allow_indexs;
 		}
@@ -396,10 +371,7 @@ impl Nth {
 		if index <= 0 || index > (total as isize) {
 			return vec![];
 		}
-		if asc {
-			return vec![(index - 1) as usize];
-		}
-		return vec![total - (index as usize)];
+		return vec![(index - 1) as usize];
 	}
 }
 
