@@ -3,6 +3,7 @@ use crate::selector::rule::RuleMatchedData;
 use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule = RuleDefItem(
+		"name",
 		"{identity}",
 		100,
 		vec![("identity", 0)],

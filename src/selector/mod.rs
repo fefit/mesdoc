@@ -207,7 +207,7 @@ impl From<&str> for Selector {
 				}
 				let rules = RULES.lock().unwrap();
 				let mut finded = false;
-				for r in rules.iter() {
+				for (_, r) in rules.iter() {
 					if let Some((matched, len)) = r.exec(next_chars) {
 						// find the rule
 						index += len;

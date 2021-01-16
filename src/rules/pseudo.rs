@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::selector::{
 	interface::{BoxDynNode, INodeType, NodeList, Result},
 	pattern::Nth,
-	rule::RuleMatchedData,
+	rule::{RuleAliasItem, RuleMatchedData},
 };
 use crate::{
 	selector::{
@@ -18,8 +18,11 @@ const DEF_NODES_LEN: usize = 5;
 /// pseudo selector ":empty"
 fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 	// empty
+	let selector = ":empty";
+	let name = selector;
 	let rule = RuleDefItem(
-		":empty",
+		name,
+		selector,
 		PRIORITY,
 		vec![],
 		Box::new(|nodes: &NodeList, _| -> Result {
@@ -52,7 +55,9 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 
 // make rule for ':first-child', ':last-child'
 fn make_first_or_last_child(selector: &'static str, is_first: bool) -> RuleDefItem {
+	let name = selector;
 	RuleDefItem(
+		name,
 		selector,
 		PRIORITY,
 		vec![],
@@ -206,7 +211,9 @@ fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem 
 			finded
 		}
 	};
+	let name = if asc { ":nth-child" } else { ":nth-last-child" };
 	RuleDefItem(
+		name,
 		selector,
 		PRIORITY,
 		vec![("nth", 0)],
@@ -256,8 +263,10 @@ type NameCountHashMap = HashMap<String, usize>;
 
 // make for ':first-of-type', ':last-of-type'
 fn make_first_or_last_of_type(selector: &'static str, is_first: bool) -> RuleDefItem {
+	let name = selector;
 	// last of type
 	RuleDefItem(
+		name,
 		selector,
 		PRIORITY,
 		vec![],
@@ -385,8 +394,14 @@ fn handle_nth_of_type(
 
 // make nth of type: `:nth-of-type`, `:nth-last-of-type`
 fn make_asc_or_desc_nth_of_type(selector: &'static str, asc: bool) -> RuleDefItem {
+	let name = if asc {
+		":nth-of-type"
+	} else {
+		":nth-last-of-type"
+	};
 	// last of type
 	RuleDefItem(
+		name,
 		selector,
 		PRIORITY,
 		vec![("nth", 0)],
@@ -469,8 +484,11 @@ fn pseudo_nth_last_of_type(rules: &mut Vec<RuleItem>) {
 
 /// pseudo selector: `only-child`
 fn pseudo_only_child(rules: &mut Vec<RuleItem>) {
+	let selector = ":only-child";
+	let name = selector;
 	let rule = RuleDefItem(
-		":only-child",
+		name,
+		selector,
 		PRIORITY,
 		vec![],
 		Box::new(move |nodes: &NodeList, _| -> Result {
@@ -485,6 +503,23 @@ fn pseudo_only_child(rules: &mut Vec<RuleItem>) {
 			}
 			Ok(result)
 		}),
+	);
+	rules.push(rule.into());
+}
+
+/// pseudo selector: `:checkbox`
+fn pseudo_alias_checkbox(rules: &mut Vec<RuleItem>) {
+	let selector = ":checkbox";
+	let name = selector;
+	let rule = RuleAliasItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![],
+		(
+			"attr",
+			Box::new(|_| return "[type=\"checkbox\"]".chars().collect::<Vec<char>>()),
+		),
 	);
 	rules.push(rule.into());
 }
@@ -505,4 +540,6 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 	// nth-of-type,nth-last-of-type
 	pseudo_nth_of_type(rules);
 	pseudo_nth_last_of_type(rules);
+	// alias
+	pseudo_alias_checkbox(rules);
 }

@@ -6,6 +6,7 @@ use crate::selector::{
 };
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule = RuleDefItem(
+		"attr",
 		r##"[{spaces}{attr_key}{spaces}{regexp#(?:([~|^$*!]?)=\s*(?:"((?:\\?+.)*?)"|'((?:\\?+.)*?)'|([^\s'"<>/=`]+)))?#}{spaces}]"##,
 		10,
 		vec![("attr_key", 0), ("regexp", 0)],

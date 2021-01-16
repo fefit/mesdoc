@@ -5,6 +5,7 @@ use crate::selector::{
 };
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule = RuleDefItem(
+		"class",
 		".{identity}",
 		1000,
 		vec![("identity", 0)],
