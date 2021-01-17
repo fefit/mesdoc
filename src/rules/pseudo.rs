@@ -516,10 +516,7 @@ fn pseudo_alias_checkbox(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![],
-		(
-			"attr",
-			Box::new(|_| return "[type=\"checkbox\"]".chars().collect::<Vec<char>>()),
-		),
+		Box::new(|_| "[type=\"checkbox\"]"),
 	);
 	rules.push(rule.into());
 }

@@ -16,10 +16,8 @@ lazy_static! {
 pub type RuleMatchedData = HashMap<SavedDataKey, &'static str>;
 pub type Handle =
 	Box<dyn (for<'a, 'r> Fn(&'a NodeList<'r>, &'a RuleMatchedData) -> NResult<'r>) + Send + Sync>;
-pub type AliasRule = (
-	&'static str,
-	Box<dyn Fn(&[Matched]) -> Vec<char> + Send + Sync>,
-);
+
+pub type AliasRule = Box<dyn (Fn(&[Matched]) -> &'static str) + Send + Sync>;
 pub struct Rule {
 	queues: Vec<Box<dyn Pattern>>,
 	fields: Vec<DataKey>,
@@ -275,20 +273,9 @@ impl Rule {
 		}
 	}
 	pub fn apply<'a, 'r>(&self, node_list: &'a NodeList<'r>, matched: &[Matched]) -> NResult<'r> {
-		if let Some((name, transform)) = &self.alias {
-			let all_rules = RULES.lock().unwrap();
-			let rule = all_rules.get(name).expect("The alias type must exist");
-			let handle = rule
-				.handle
-				.as_ref()
-				.expect("The alias type's handle must not be None");
-			let chars = transform(matched);
-			let params = if let Some((matched, _)) = rule.exec(&chars) {
-				rule.data(&matched)
-			} else {
-				self.data(matched)
-			};
-			handle(node_list, &params)
+		if let Some(alias) = &self.alias {
+			let rule = alias(matched);
+			node_list.filter(rule)
 		} else {
 			let handle = self
       .handle

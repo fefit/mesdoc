@@ -65,7 +65,7 @@ pub struct QueryProcess {
 	pub should_in: Option<SelectorGroupsItem>,
 	pub query: SelectorGroupsItem,
 }
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Selector {
 	pub process: Vec<QueryProcess>,
 }
@@ -73,82 +73,12 @@ pub struct Selector {
 type SelectorGroupsItem = Vec<Vec<SelectorSegment>>;
 type SelectorGroups = Vec<SelectorGroupsItem>;
 impl Selector {
-	fn new() -> Self {
+	pub fn new() -> Self {
 		Selector {
 			process: Vec::with_capacity(1),
 		}
 	}
-	fn add_group(groups: &mut SelectorGroups) {
-		groups.push(Vec::with_capacity(2));
-	}
-	fn add_group_item(groups: &mut SelectorGroups, item: SelectorSegment, is_new: bool) {
-		let last_group = groups.last_mut().unwrap();
-		if is_new {
-			last_group.push(vec![item]);
-		} else {
-			last_group.last_mut().unwrap().push(item);
-		}
-	}
-	// optimize the parse process
-	fn optimize(&mut self, groups: SelectorGroups) {
-		let mut process: Vec<QueryProcess> = Vec::with_capacity(groups.len());
-		for mut group in groups {
-			// first optimize the chain selectors, the rule who's priority is bigger will apply first
-			let mut max_index: usize = 0;
-			let mut max_priority: u32 = 0;
-			for (index, r) in group.iter_mut().enumerate() {
-				let mut total_priority = 0;
-				if r.len() > 1 {
-					let chain_comb = r[0].2;
-					r.sort_by(|a, b| b.0.priority.partial_cmp(&a.0.priority).unwrap());
-					let mut now_first = &mut r[0];
-					if now_first.2 != chain_comb {
-						now_first.2 = chain_comb;
-						total_priority += now_first.0.priority;
-						for n in &mut r[1..] {
-							n.2 = Combinator::Chain;
-							total_priority += n.0.priority;
-						}
-						continue;
-					}
-				}
-				total_priority = r.iter().map(|p| p.0.priority).sum();
-				if total_priority > max_priority {
-					max_priority = total_priority;
-					max_index = index;
-				}
-			}
-			// if the first combinator is child, and the max_index > 1, use the max_index's rule first
-			if max_index > 1 {
-				let is_child = matches!(
-					group[0][0].2,
-					Combinator::Children | Combinator::ChildrenAll
-				);
-				if is_child {
-					let query = group.split_off(max_index);
-					let should_in = Some(group);
-					process.push(QueryProcess { should_in, query });
-					continue;
-				}
-			}
-			process.push(QueryProcess {
-				should_in: None,
-				query: group,
-			});
-		}
-		self.process = process;
-	}
-}
-
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-enum PrevInSelector {
-	Begin,
-	Splitter,
-	Selector,
-}
-
-impl From<&str> for Selector {
-	fn from(selector: &str) -> Self {
+	pub fn from_str(selector: &str, use_lookup: bool) -> Self {
 		let splitter = SPLITTER.lock().unwrap();
 		let chars: Vec<char> = selector.chars().collect();
 		let total_len = chars.len();
@@ -230,8 +160,83 @@ impl From<&str> for Selector {
 				panic!("Wrong selector rule at last")
 			}
 			// optimize groups to query process
-			selector.optimize(groups);
+			selector.optimize(groups, use_lookup);
 		}
 		selector
+	}
+	fn add_group(groups: &mut SelectorGroups) {
+		groups.push(Vec::with_capacity(2));
+	}
+	fn add_group_item(groups: &mut SelectorGroups, item: SelectorSegment, is_new: bool) {
+		let last_group = groups.last_mut().unwrap();
+		if is_new {
+			last_group.push(vec![item]);
+		} else {
+			last_group.last_mut().unwrap().push(item);
+		}
+	}
+	// optimize the parse process
+	fn optimize(&mut self, groups: SelectorGroups, use_lookup: bool) {
+		let mut process: Vec<QueryProcess> = Vec::with_capacity(groups.len());
+		for mut group in groups {
+			// first optimize the chain selectors, the rule who's priority is bigger will apply first
+			let mut max_index: usize = 0;
+			let mut max_priority: u32 = 0;
+			for (index, r) in group.iter_mut().enumerate() {
+				let mut total_priority = 0;
+				if r.len() > 1 {
+					let chain_comb = r[0].2;
+					r.sort_by(|a, b| b.0.priority.partial_cmp(&a.0.priority).unwrap());
+					let mut now_first = &mut r[0];
+					if now_first.2 != chain_comb {
+						now_first.2 = chain_comb;
+						total_priority += now_first.0.priority;
+						for n in &mut r[1..] {
+							n.2 = Combinator::Chain;
+							total_priority += n.0.priority;
+						}
+						continue;
+					}
+				}
+				if use_lookup {
+					total_priority = r.iter().map(|p| p.0.priority).sum();
+					if total_priority > max_priority {
+						max_priority = total_priority;
+						max_index = index;
+					}
+				}
+			}
+			// if the first combinator is child, and the max_index > 1, use the max_index's rule first
+			if use_lookup && max_index > 1 {
+				let is_child = matches!(
+					group[0][0].2,
+					Combinator::Children | Combinator::ChildrenAll
+				);
+				if is_child {
+					let query = group.split_off(max_index);
+					let should_in = Some(group);
+					process.push(QueryProcess { should_in, query });
+					continue;
+				}
+			}
+			process.push(QueryProcess {
+				should_in: None,
+				query: group,
+			});
+		}
+		self.process = process;
+	}
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+enum PrevInSelector {
+	Begin,
+	Splitter,
+	Selector,
+}
+
+impl From<&str> for Selector {
+	fn from(selector: &str) -> Self {
+		Selector::from_str(selector, true)
 	}
 }

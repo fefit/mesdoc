@@ -199,6 +199,12 @@ pub trait INodeTrait {
 	fn owner_document(&self) -> MaybeDocResult;
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum FilterType {
+	Filter,
+	Not,
+	Is,
+}
 #[derive(Default)]
 pub struct NodeList<'a> {
 	nodes: Vec<BoxDynNode<'a>>,
@@ -327,6 +333,94 @@ impl<'a> NodeList<'a> {
 		}
 		Ok(result)
 	}
+	// filter_by:
+	//          |   `loop_group:rule groups      |     'loop_node: node list
+	// Filter   |     match one rule item        |      should loop all nodes
+	// Not      |        all not matched         |      should loop all nodes
+	// Is       |           all matched          |  once one node is not matched, break the loop
+	fn filter_by<'b>(&self, selector: &str, filter_type: FilterType) -> Result<'b> {
+		let selector: Selector = Selector::from_str(selector, false);
+		let groups_num = selector.process.len();
+		let mut result = NodeList::with_capacity(self.get_ref().len());
+		let is_not = filter_type == FilterType::Not;
+		for node in self.get_ref() {
+			let mut ok_nums = 0;
+			'loop_group: for process in &selector.process {
+				let QueryProcess { query, .. } = process;
+				let mut node_list = NodeList::with_nodes(vec![node.cloned()]);
+				let mut comb = Combinator::Chain;
+				// loop cur group's rule
+				'loop_rule: for rules in query.iter().rev() {
+					let first_rule = &rules[0];
+					node_list = NodeList::select_by_rule(&node_list, first_rule, Some(comb))?.unique();
+					if node_list.is_empty() {
+						break;
+					}
+					if rules.len() > 1 {
+						for rule in &rules[1..] {
+							node_list = NodeList::select_by_rule(&node_list, rule, None)?;
+							if node_list.is_empty() {
+								break 'loop_rule;
+							}
+						}
+					}
+					// change the comb into cur first rule's reverse comb.
+					comb = first_rule.2.reverse();
+				}
+				if node_list.is_empty() {
+					if is_not {
+						// if is `not`, then the node is not in cur group selector.
+						ok_nums += 1;
+					}
+				} else {
+					// match one of the group item
+					match filter_type {
+						FilterType::Filter => {
+							result.push(node.cloned());
+							break 'loop_group;
+						}
+						FilterType::Is => {
+							ok_nums += 1;
+						}
+						FilterType::Not => {}
+					}
+				}
+			}
+			// check the node loop
+			match filter_type {
+				FilterType::Not => {
+					if ok_nums == groups_num {
+						result.push(node.cloned());
+					}
+				}
+				FilterType::Is => {
+					if ok_nums == groups_num {
+						result.push(node.cloned());
+					} else {
+						// break the loop for node
+						break;
+					}
+				}
+				_ => {}
+			}
+		}
+		Ok(result)
+	}
+	// filter
+	pub fn filter<'b>(&self, selector: &str) -> Result<'b> {
+		self.filter_by(selector, FilterType::Filter)
+	}
+	// is
+	pub fn is(&self, selector: &str) -> StdResult<bool, &'static str> {
+		if self.is_empty() {
+			return Ok(false);
+		}
+		Ok(self.filter_by(selector, FilterType::Is)?.length() == self.length())
+	}
+	// not
+	pub fn not<'b>(&self, selector: &str) -> Result<'b> {
+		self.filter_by(selector, FilterType::Not)
+	}
 	// unique the nodes
 	fn unique<'b>(&self) -> NodeList<'b> {
 		let total = self.length();
@@ -334,7 +428,7 @@ impl<'a> NodeList<'a> {
 		for node in self.get_ref() {
 			let is_exists = {
 				let mut flag = false;
-				for cur in result.get_ref() {
+				for cur in result.get_ref().iter().rev() {
 					if cur.is(node) {
 						flag = true;
 						break;
@@ -349,13 +443,124 @@ impl<'a> NodeList<'a> {
 		}
 		result
 	}
+	// select one rule
+	fn select_by_rule<'b>(
+		node_list: &'b NodeList<'a>,
+		rule_item: &'b SelectorSegment,
+		comb: Option<Combinator>,
+	) -> Result<'a> {
+		let cur_comb = comb.unwrap_or(rule_item.2);
+		let (rule, matched, ..) = rule_item;
+		let mut result = NodeList::with_capacity(5);
+		use Combinator::*;
+		match cur_comb {
+			ChildrenAll => {
+				// depth first search, keep the appear order
+				for node in node_list.get_ref() {
+					// get children
+					let childs = node.children()?;
+					if childs.length() > 0 {
+						// apply rule
+						let match_childs = rule.apply(&childs, matched)?;
+						// merge to result
+						if match_childs.length() > 0 {
+							result.get_mut_ref().extend(match_childs);
+						}
+						let sub_childs = NodeList::select_by_rule(&childs, rule_item, comb)?;
+						if !sub_childs.is_empty() {
+							result.get_mut_ref().extend(sub_childs);
+						}
+					}
+				}
+			}
+			Children => {
+				for node in node_list.get_ref() {
+					let childs = node.children()?;
+					let match_childs = rule.apply(&childs, matched)?;
+					if match_childs.length() > 0 {
+						result.get_mut_ref().extend(match_childs);
+					}
+				}
+			}
+			Parent => {
+				for node in node_list.get_ref() {
+					if let Some(pnode) = node.parent()? {
+						let cur_pnode = NodeList::with_nodes(vec![pnode.cloned()]);
+						let parent = rule.apply(&cur_pnode, matched)?;
+						if parent.length() > 0 {
+							result.get_mut_ref().extend(parent);
+						}
+					}
+				}
+			}
+			ParentAll => {
+				let mut ancestors = NodeList::with_capacity(node_list.length());
+				for node in node_list.get_ref() {
+					if let Some(pnode) = node.parent()? {
+						let cur_pnode = NodeList::with_nodes(vec![pnode.cloned()]);
+						let parent = rule.apply(&cur_pnode, matched)?;
+						if parent.length() > 0 {
+							result.get_mut_ref().extend(parent);
+						}
+						if let Some(ancestor) = pnode.parent()? {
+							ancestors.push(ancestor.cloned());
+						}
+					}
+				}
+				if ancestors.length() > 0 {
+					result
+						.get_mut_ref()
+						.extend(NodeList::select_by_rule(&ancestors, rule_item, comb)?);
+				}
+			}
+			NextAll => {
+				for node in node_list.get_ref() {
+					let nexts = node.next_siblings()?;
+					let matched_nexts = rule.apply(&nexts, matched)?;
+					if matched_nexts.length() > 0 {
+						result.get_mut_ref().extend(matched_nexts);
+					}
+				}
+			}
+			Next => {
+				let mut nexts = NodeList::with_capacity(node_list.length());
+				for node in node_list.get_ref() {
+					if let Some(next) = node.next_sibling()? {
+						nexts.push(next.cloned());
+					}
+				}
+				if nexts.length() > 0 {
+					result = rule.apply(&nexts, matched)?;
+				}
+			}
+			PrevAll => {
+				for node in node_list.get_ref() {
+					let nexts = node.previous_siblings()?;
+					result.get_mut_ref().extend(rule.apply(&nexts, matched)?);
+				}
+			}
+			Prev => {
+				let mut prevs = NodeList::with_capacity(node_list.length());
+				for node in node_list.get_ref() {
+					if let Some(next) = node.previous_sibling()? {
+						prevs.push(next.cloned());
+					}
+				}
+				if prevs.length() > 0 {
+					result = rule.apply(&prevs, matched)?;
+				}
+			}
+			Chain => {
+				result = rule.apply(&node_list, matched)?;
+			}
+		};
+		Ok(result)
+	}
 	// select node by rules
 	fn select<'b>(node_list: &'b NodeList<'a>, rules: &'b [SelectorSegment]) -> Result<'a> {
 		let mut node_list = node_list.cloned();
-		use Combinator::*;
-		for (index, r) in rules.iter().enumerate() {
-			let (rule, matched, comb) = r;
-			let cur_rule = &rules[index..index + 1];
+		for rule_item in rules.iter() {
+			let (rule, matched, comb) = rule_item;
 			let mut cur_result = NodeList::with_capacity(5);
 			if rule.in_cache {
 				// in cache
@@ -368,109 +573,7 @@ impl<'a> NodeList<'a> {
 					}
 				}
 			} else {
-				match comb {
-					ChildrenAll => {
-						// depth first search, keep the appear order
-						for node in node_list.get_ref() {
-							// get children
-							let childs = node.children()?;
-							if childs.length() > 0 {
-								// apply rule
-								let match_childs = rule.apply(&childs, matched)?;
-								// merge to result
-								if match_childs.length() > 0 {
-									cur_result.get_mut_ref().extend(match_childs);
-								}
-								let sub_childs = NodeList::select(&childs, cur_rule)?;
-								if !sub_childs.is_empty() {
-									cur_result.get_mut_ref().extend(sub_childs);
-								}
-							}
-						}
-					}
-					Combinator::Children => {
-						for node in node_list.get_ref() {
-							let childs = node.children()?;
-							let match_childs = rule.apply(&childs, matched)?;
-							if match_childs.length() > 0 {
-								cur_result.get_mut_ref().extend(match_childs);
-							}
-						}
-					}
-					Combinator::Parent => {
-						for node in node_list.get_ref() {
-							if let Some(pnode) = node.parent()? {
-								let cur_pnode = NodeList::with_nodes(vec![pnode.cloned()]);
-								let parent = rule.apply(&cur_pnode, matched)?;
-								if parent.length() > 0 {
-									cur_result.get_mut_ref().extend(parent);
-								}
-							}
-						}
-					}
-					Combinator::ParentAll => {
-						let mut ancestors = NodeList::with_capacity(node_list.length());
-						for node in node_list.get_ref() {
-							if let Some(pnode) = node.parent()? {
-								let cur_pnode = NodeList::with_nodes(vec![pnode.cloned()]);
-								let parent = rule.apply(&cur_pnode, matched)?;
-								if parent.length() > 0 {
-									cur_result.get_mut_ref().extend(parent);
-								}
-								if let Some(ancestor) = pnode.parent()? {
-									ancestors.push(ancestor.cloned());
-								}
-							}
-						}
-						if ancestors.length() > 0 {
-							cur_result
-								.get_mut_ref()
-								.extend(NodeList::select(&ancestors, cur_rule)?);
-						}
-					}
-					Combinator::NextAll => {
-						for node in node_list.get_ref() {
-							let nexts = node.next_siblings()?;
-							let matched_nexts = rule.apply(&nexts, matched)?;
-							if matched_nexts.length() > 0 {
-								cur_result.get_mut_ref().extend(matched_nexts);
-							}
-						}
-					}
-					Combinator::Next => {
-						let mut nexts = NodeList::with_capacity(node_list.length());
-						for node in node_list.get_ref() {
-							if let Some(next) = node.next_sibling()? {
-								nexts.push(next.cloned());
-							}
-						}
-						if nexts.length() > 0 {
-							cur_result = rule.apply(&nexts, matched)?;
-						}
-					}
-					Combinator::PrevAll => {
-						for node in node_list.get_ref() {
-							let nexts = node.previous_siblings()?;
-							cur_result
-								.get_mut_ref()
-								.extend(rule.apply(&nexts, matched)?);
-						}
-					}
-					Combinator::Prev => {
-						let mut prevs = NodeList::with_capacity(node_list.length());
-						for node in node_list.get_ref() {
-							if let Some(next) = node.previous_sibling()? {
-								prevs.push(next.cloned());
-							}
-						}
-						if prevs.length() > 0 {
-							cur_result = rule.apply(&prevs, matched)?;
-						}
-					}
-					Combinator::Chain => {
-						cur_result = rule.apply(&node_list, matched)?;
-					}
-				};
+				cur_result = NodeList::select_by_rule(&node_list, rule_item, None)?;
 			}
 			node_list = cur_result.unique();
 			if node_list.length() == 0 {
