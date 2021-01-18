@@ -419,13 +419,12 @@ fn make_asc_or_desc_nth_of_type(selector: &'static str, asc: bool) -> RuleDefIte
 						if allow_indexs.is_empty() {
 							return Ok(());
 						}
-						//
+						// childs
 						let childs = data
 							.parent
 							.as_ref()
 							.expect("parent must set in callback")
 							.children()?;
-
 						let mut names: NameCountHashMap = HashMap::with_capacity(5);
 						let mut finded: Vec<BoxDynNode> = Vec::with_capacity(5);
 						// loop
@@ -507,6 +506,64 @@ fn pseudo_only_child(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
+/// pseudo selector: `only-child`
+fn pseudo_only_of_type(rules: &mut Vec<RuleItem>) {
+	let selector = ":only-of-type";
+	let name = selector;
+	let rule = RuleDefItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![],
+		Box::new(move |nodes: &NodeList, _| -> Result {
+			let mut result = NodeList::with_capacity(DEF_NODES_LEN);
+			group_siblings_then_done(
+				nodes,
+				|_| None,
+				|data: &mut SiblingsNodeData| -> EmptyResult {
+					let childs = data
+						.parent
+						.as_ref()
+						.expect("parent must set in callback")
+						.children()?;
+					let siblings = &mut data.siblings;
+					let mut names: HashMap<String, bool> = HashMap::with_capacity(DEF_NODES_LEN);
+					for child in childs.get_ref() {
+						let name = child.tag_name();
+						if let Some(removed_done) = names.get_mut(name) {
+							if *removed_done {
+								// has removed the not only type
+							} else {
+								// remove not only type
+								let mut repeat_indexs: Vec<usize> = Vec::with_capacity(siblings.len());
+								for (index, node) in siblings.iter().enumerate() {
+									if node.tag_name() == name {
+										repeat_indexs.push(index);
+									}
+								}
+								if !repeat_indexs.is_empty() {
+									retain_by_index(siblings, &repeat_indexs);
+								}
+								*removed_done = true;
+							}
+						} else {
+							names.insert(String::from(name), false);
+						}
+					}
+					if !siblings.is_empty() {
+						for node in siblings {
+							result.push(node.cloned());
+						}
+					}
+					Ok(())
+				},
+			)?;
+			Ok(result)
+		}),
+	);
+	rules.push(rule.into());
+}
+
 /// pseudo selector: `:checkbox`
 fn pseudo_alias_checkbox(rules: &mut Vec<RuleItem>) {
 	let selector = ":checkbox";
@@ -537,6 +594,8 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 	// nth-of-type,nth-last-of-type
 	pseudo_nth_of_type(rules);
 	pseudo_nth_last_of_type(rules);
+	// only-of-type
+	pseudo_only_of_type(rules);
 	// alias
 	pseudo_alias_checkbox(rules);
 }

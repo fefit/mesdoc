@@ -15,6 +15,7 @@ pub enum IAttrValue {
 	Value(String, Option<char>),
 	True,
 }
+#[derive(Debug)]
 pub enum INodeType {
 	Element,
 	Text,
@@ -258,9 +259,9 @@ impl<'a> NodeList<'a> {
 				group = NodeList::with_capacity(5);
 				// get finded
 				let finded = NodeList::select(self, first)?;
-				if finded.length() > 0 {
+				if !finded.is_empty() {
 					let firsts = NodeList::select(self, &lookup[0])?;
-					if firsts.length() > 0 {
+					if !firsts.is_empty() {
 						let lookup_rules = if lookup.len() > 1 {
 							for rule in &mut lookup[1..] {
 								swap(&mut rule[0].2, &mut lookup_comb);
@@ -318,10 +319,10 @@ impl<'a> NodeList<'a> {
 				group = self.cloned();
 			}
 			let mut is_empty = false;
-			if group.length() > 0 && !query.is_empty() {
+			if !group.is_empty() && !query.is_empty() {
 				for rules in query {
 					group = NodeList::select(&group, &rules)?;
-					if group.length() == 0 {
+					if group.is_empty() {
 						is_empty = true;
 						break;
 					}
@@ -459,11 +460,11 @@ impl<'a> NodeList<'a> {
 				for node in node_list.get_ref() {
 					// get children
 					let childs = node.children()?;
-					if childs.length() > 0 {
+					if !childs.is_empty() {
 						// apply rule
 						let match_childs = rule.apply(&childs, matched)?;
 						// merge to result
-						if match_childs.length() > 0 {
+						if !match_childs.is_empty() {
 							result.get_mut_ref().extend(match_childs);
 						}
 						let sub_childs = NodeList::select_by_rule(&childs, rule_item, comb)?;
@@ -477,7 +478,7 @@ impl<'a> NodeList<'a> {
 				for node in node_list.get_ref() {
 					let childs = node.children()?;
 					let match_childs = rule.apply(&childs, matched)?;
-					if match_childs.length() > 0 {
+					if !match_childs.is_empty() {
 						result.get_mut_ref().extend(match_childs);
 					}
 				}
@@ -487,7 +488,7 @@ impl<'a> NodeList<'a> {
 					if let Some(pnode) = node.parent()? {
 						let cur_pnode = NodeList::with_nodes(vec![pnode.cloned()]);
 						let parent = rule.apply(&cur_pnode, matched)?;
-						if parent.length() > 0 {
+						if !parent.is_empty() {
 							result.get_mut_ref().extend(parent);
 						}
 					}
@@ -499,7 +500,7 @@ impl<'a> NodeList<'a> {
 					if let Some(pnode) = node.parent()? {
 						let cur_pnode = NodeList::with_nodes(vec![pnode.cloned()]);
 						let parent = rule.apply(&cur_pnode, matched)?;
-						if parent.length() > 0 {
+						if !parent.is_empty() {
 							result.get_mut_ref().extend(parent);
 						}
 						if let Some(ancestor) = pnode.parent()? {
@@ -507,7 +508,7 @@ impl<'a> NodeList<'a> {
 						}
 					}
 				}
-				if ancestors.length() > 0 {
+				if !ancestors.is_empty() {
 					result
 						.get_mut_ref()
 						.extend(NodeList::select_by_rule(&ancestors, rule_item, comb)?);
@@ -517,7 +518,7 @@ impl<'a> NodeList<'a> {
 				for node in node_list.get_ref() {
 					let nexts = node.next_siblings()?;
 					let matched_nexts = rule.apply(&nexts, matched)?;
-					if matched_nexts.length() > 0 {
+					if !matched_nexts.is_empty() {
 						result.get_mut_ref().extend(matched_nexts);
 					}
 				}
@@ -529,7 +530,7 @@ impl<'a> NodeList<'a> {
 						nexts.push(next.cloned());
 					}
 				}
-				if nexts.length() > 0 {
+				if !nexts.is_empty() {
 					result = rule.apply(&nexts, matched)?;
 				}
 			}
@@ -546,7 +547,7 @@ impl<'a> NodeList<'a> {
 						prevs.push(next.cloned());
 					}
 				}
-				if prevs.length() > 0 {
+				if !prevs.is_empty() {
 					result = rule.apply(&prevs, matched)?;
 				}
 			}
@@ -565,7 +566,7 @@ impl<'a> NodeList<'a> {
 			if rule.in_cache {
 				// in cache
 				let finded = rule.apply(&node_list, matched)?;
-				if finded.length() > 0 {
+				if !finded.is_empty() {
 					for node in finded.get_ref() {
 						if node_list.contains_node(node, &comb.reverse(), None) {
 							cur_result.push(node.cloned());
@@ -576,7 +577,7 @@ impl<'a> NodeList<'a> {
 				cur_result = NodeList::select_by_rule(&node_list, rule_item, None)?;
 			}
 			node_list = cur_result.unique();
-			if node_list.length() == 0 {
+			if node_list.is_empty() {
 				break;
 			}
 		}
@@ -605,7 +606,7 @@ impl<'a> NodeList<'a> {
 				} else {
 					node_list = NodeList::new();
 				}
-				if node_list.length() == 0 {
+				if node_list.is_empty() {
 					return false;
 				}
 			}
@@ -628,6 +629,9 @@ impl<'a> NodeList<'a> {
 							return true;
 						}
 						if let Some(ancestor) = parent.parent().unwrap_or(None) {
+							if self.includes(&ancestor) {
+								return true;
+							}
 							if self.contains_node(&ancestor, comb, None) {
 								return true;
 							}
