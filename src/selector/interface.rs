@@ -183,9 +183,9 @@ pub trait INodeTrait {
 	fn text(&self) -> &str {
 		self.text_content()
 	}
-	// // node
-	// fn append_child(&mut self);
-	// fn remove_child(&mut self, node: BoxDynNode);
+	// append child, insert before, remove child
+	fn append_child(&mut self, node: BoxDynNode);
+	fn remove_child(&mut self, node: BoxDynNode);
 	// check if two node are the same
 	fn uuid(&self) -> Option<&str>;
 	fn is(&self, node: &BoxDynNode) -> bool {
@@ -705,6 +705,14 @@ impl<'a> NodeList<'a> {
 			return node.get_attribute(attr_name);
 		}
 		None
+	}
+	/// pub fn `remove`
+	pub fn remove(self) {
+		for node in self.into_iter() {
+			if let Some(parent) = node.parent().unwrap_or(None).as_mut() {
+				parent.remove_child(node);
+			}
+		}
 	}
 }
 
