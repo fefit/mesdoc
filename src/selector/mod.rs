@@ -123,9 +123,9 @@ impl Selector {
 					} else {
 						prev_in = PrevInSelector::Splitter;
 						last_in = prev_in;
-          }
+					}
 					continue;
-        }
+				}
 				// then it must match a selector rule
 				let mut is_new_item = true;
 				if prev_in == PrevInSelector::Selector {
@@ -143,8 +143,8 @@ impl Selector {
 						index += len;
 						// push to selector
 						Selector::add_group_item(&mut groups, (Arc::clone(r), matched, comb), is_new_item);
-            finded = true;
-            
+						finded = true;
+
 						break;
 					}
 				}
@@ -165,9 +165,11 @@ impl Selector {
 		}
 		selector
 	}
+	// add a selector group, splitted by ','
 	fn add_group(groups: &mut SelectorGroups) {
 		groups.push(Vec::with_capacity(2));
 	}
+	// add a selector group item
 	fn add_group_item(groups: &mut SelectorGroups, item: SelectorSegment, is_new: bool) {
 		let last_group = groups.last_mut().unwrap();
 		if is_new {
@@ -226,6 +228,41 @@ impl Selector {
 			});
 		}
 		self.process = process;
+	}
+	// change the combinator
+	pub fn head_combinator(&mut self, comb: Combinator) {
+		let mut all_rule: Option<Arc<Rule>> = None;
+		for p in &mut self.process {
+			let v = if let Some(should_in) = &mut p.should_in {
+				should_in
+			} else {
+				&mut p.query
+			};
+			if let Some(rule) = v.get_mut(0) {
+				let first_comb = rule[0].2;
+				match first_comb {
+					Combinator::ChildrenAll => rule[0].2 = comb,
+					_ => {
+						if all_rule.is_none() {
+							let rules = RULES.lock().unwrap();
+							all_rule = rules.get("all").map(|r| Arc::clone(r));
+						}
+						let cur_rule = Arc::clone(all_rule.as_ref().unwrap());
+						v.insert(
+							0,
+							vec![(
+								cur_rule,
+								vec![Matched {
+									chars: vec!['*'],
+									..Default::default()
+								}],
+								comb,
+							)],
+						);
+					}
+				};
+			}
+		}
 	}
 }
 
