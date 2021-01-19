@@ -1,6 +1,5 @@
-use std::mem::swap;
+use std::{any::Any, mem::swap};
 use std::result::Result as StdResult;
-
 use crate::utils::to_static_str;
 
 use super::{Combinator, QueryProcess, Selector, SelectorSegment};
@@ -15,14 +14,36 @@ pub enum IAttrValue {
 	Value(String, Option<char>),
 	True,
 }
+#[derive(Debug, PartialEq, Eq)]
+pub enum InsertPosition{
+  BeforeBegin,
+  AfterBegin,
+  BeforeEnd,
+  AfterEnd
+}
+
+impl InsertPosition{
+  pub fn action(&self) -> &'static str{
+    use InsertPosition::*;
+    match self{
+      BeforeBegin => "insert before",
+      AfterBegin => "prepend",
+      BeforeEnd => "append",
+      AfterEnd => "insert after"
+    }
+  }
+}
+
 #[derive(Debug)]
 pub enum INodeType {
+  Comment,
+	Document,
 	Element,
 	Text,
-	Comment,
-	Spaces,
-	Document,
-	Other,
+  HTMLDOCTYPE,
+  XMLCDATA,
+  AbstractRoot,
+  Other
 }
 
 impl INodeType {
@@ -33,7 +54,8 @@ impl INodeType {
 pub trait IDocumentTrait {
 	fn get_element_by_id<'b>(&self, id: &str) -> Option<BoxDynNode<'b>>;
 }
-pub trait INodeTrait {
+pub trait INodeTrait{
+  fn to_node(self: Box<Self>) -> Box<dyn Any>;
 	// clone a node
 	fn cloned<'b>(&self) -> BoxDynNode<'b>;
 	// tag name
@@ -184,7 +206,7 @@ pub trait INodeTrait {
 		self.text_content()
 	}
 	// append child, insert before, remove child
-	fn append_child(&mut self, node: BoxDynNode);
+	fn insert_adjacent(&mut self, position: &InsertPosition, node: &BoxDynNode);
 	fn remove_child(&mut self, node: BoxDynNode);
 	// check if two node are the same
 	fn uuid(&self) -> Option<&str>;
@@ -240,10 +262,28 @@ impl<'a> NodeList<'a> {
 	}
 	pub fn is_empty(&self) -> bool {
 		self.length() == 0
-	}
-	// filter some rule
-	pub fn find<'b>(&self, selector: &str) -> Result<'b> {
-		let selector: Selector = selector.into();
+  }
+  // children
+  pub fn children<'b>(&self, selector: &str) -> Result<'b>{
+    if selector.is_empty(){
+      return self.find("> *");
+    }
+    let mut selector: Selector = selector.into();
+    for p in &mut selector.process{
+      let v = if let Some(should_in) = &mut p.should_in
+      {
+        should_in.get_mut(0)
+      } else {
+        p.query.get_mut(0)
+      };
+      if let Some(rule) = v{
+        rule[0].2 = Combinator::Children;
+      }
+    }
+    self.find_by(selector)
+  }
+  // for `find` and `children` method
+  fn find_by<'b>(&self, selector: Selector) -> Result<'b>{
 		let process = selector.process;
 		let mut result = NodeList::with_capacity(5);
 		for p in process {
@@ -333,6 +373,10 @@ impl<'a> NodeList<'a> {
 			}
 		}
 		Ok(result)
+  }
+	// filter some rule
+	pub fn find<'b>(&self, selector: &str) -> Result<'b> {
+		self.find_by(selector.into())
 	}
 	// filter_by:
 	//          |   `loop_group:rule groups      |     'loop_node: node list
@@ -705,7 +749,13 @@ impl<'a> NodeList<'a> {
 			return node.get_attribute(attr_name);
 		}
 		None
-	}
+  }
+  /// pub fn `set_attr`
+  pub fn set_attr(&mut self, attr_name: &str, value: Option<&str>){
+    for node in self.get_mut_ref(){
+      node.set_attribute(attr_name, value);
+    }
+  }
 	/// pub fn `remove`
 	pub fn remove(self) {
 		for node in self.into_iter() {
@@ -713,7 +763,47 @@ impl<'a> NodeList<'a> {
 				parent.remove_child(node);
 			}
 		}
-	}
+  }
+  // `insert`
+  fn insert(&mut self, dest: &NodeList, position: &InsertPosition){
+    for node in self.get_mut_ref(){
+      for inserted in dest.get_ref().iter().rev(){
+        node.insert_adjacent(position, inserted);
+      }
+    }
+  }
+  /// pub fn `append`
+  pub fn append(&mut self, node_list: &NodeList){
+    self.insert(node_list, &InsertPosition::BeforeEnd);
+  }
+  /// pub fn `append_to`
+  pub fn append_to(&self, node_list: &mut NodeList){
+    node_list.append(self);
+  }
+  /// pub fn `prepend`
+  pub fn prepend(&mut self, node_list: &NodeList){
+    self.insert(node_list,&InsertPosition::AfterBegin);
+  }
+  /// pub fn `prepend_to`
+  pub fn prepend_to(&self, node_list: &mut NodeList){
+    node_list.prepend(self);
+  }
+  /// pub fn `insert_before`
+  pub fn insert_before(&mut self, node_list: &NodeList){
+    self.insert(node_list,&InsertPosition::BeforeBegin);
+  }
+  /// pub fn `before`
+  pub fn before(&self, node_list: &mut NodeList){
+    node_list.insert_before(self);
+  }
+  /// pub fn `insert_after`
+  pub fn insert_after(&mut self, node_list: &NodeList){
+    self.insert(node_list,&InsertPosition::AfterEnd);
+  }
+  /// pub fn `before`
+  pub fn after(&self, node_list: &mut NodeList){
+    node_list.insert_after(self);
+  }
 }
 
 impl<'a> IntoIterator for NodeList<'a> {

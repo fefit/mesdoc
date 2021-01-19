@@ -90,7 +90,7 @@ impl Selector {
 			let mut last_in = prev_in;
 			let mut groups: SelectorGroups = Vec::new();
 			Selector::add_group(&mut groups);
-			while index < total_len - 1 {
+			while index < total_len {
 				let next_chars = &chars[index..];
 				// first check if combinator
 				if let Some((matched, len)) = splitter.exec(next_chars) {
@@ -123,9 +123,9 @@ impl Selector {
 					} else {
 						prev_in = PrevInSelector::Splitter;
 						last_in = prev_in;
-					}
+          }
 					continue;
-				}
+        }
 				// then it must match a selector rule
 				let mut is_new_item = true;
 				if prev_in == PrevInSelector::Selector {
@@ -143,7 +143,8 @@ impl Selector {
 						index += len;
 						// push to selector
 						Selector::add_group_item(&mut groups, (Arc::clone(r), matched, comb), is_new_item);
-						finded = true;
+            finded = true;
+            
 						break;
 					}
 				}

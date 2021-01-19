@@ -8,7 +8,7 @@ pub mod rules;
 // export selector
 pub mod selector;
 // utils for crate
-pub(crate) mod utils;
+pub mod utils;
 // export init, must execute `init()` first
 pub fn init(){
 	if !IS_RULES_INIT.load(Ordering::SeqCst) {
