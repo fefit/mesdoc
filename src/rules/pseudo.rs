@@ -564,6 +564,20 @@ fn pseudo_only_of_type(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
+/// pseudo selector: `:not`
+fn pseudo_not(rules: &mut Vec<RuleItem>) {
+	let name = ":not";
+	let selector = ":not({spaces}{selector}{spaces})";
+	let rule = RuleDefItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![("selector", 0)],
+		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result { Ok(nodes.cloned()) }),
+	);
+	rules.push(rule.into());
+}
+
 /// pseudo selector: `:checkbox`
 fn pseudo_alias_checkbox(rules: &mut Vec<RuleItem>) {
 	let selector = ":checkbox";
@@ -596,6 +610,8 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 	pseudo_nth_last_of_type(rules);
 	// only-of-type
 	pseudo_only_of_type(rules);
+	// not
+	pseudo_not(rules);
 	// alias
 	pseudo_alias_checkbox(rules);
 }

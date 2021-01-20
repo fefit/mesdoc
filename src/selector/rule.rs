@@ -1,9 +1,6 @@
 use super::interface::{NodeList, Result as NResult};
 use super::pattern::{self, exec, to_pattern, Matched, Pattern};
-use crate::{
-	rules,
-	utils::{to_static_str, vec_char_to_clean_str},
-};
+use crate::utils::{to_static_str, vec_char_to_clean_str};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt;
@@ -19,12 +16,12 @@ pub type Handle =
 
 pub type AliasRule = Box<dyn (Fn(&[Matched]) -> &'static str) + Send + Sync>;
 pub struct Rule {
-	queues: Vec<Box<dyn Pattern>>,
+	pub in_cache: bool,
+	pub priority: u32,
+	pub(crate) queues: Vec<Box<dyn Pattern>>,
 	fields: Vec<DataKey>,
 	handle: Option<Handle>,
 	alias: Option<AliasRule>,
-	pub priority: u32,
-	pub in_cache: bool,
 }
 
 impl fmt::Debug for Rule {
@@ -264,10 +261,10 @@ impl From<&str> for Rule {
 }
 
 impl Rule {
-	pub fn exec(&self, chars: &[char]) -> Option<(Vec<Matched>, usize)> {
-		let (result, matched_len, _) = exec(&self.queues, chars);
+	pub fn exec(&self, chars: &[char]) -> Option<(Vec<Matched>, usize, usize)> {
+		let (result, matched_len, matched_queue_item, _) = exec(&self.queues, chars);
 		if matched_len > 0 {
-			Some((result, matched_len))
+			Some((result, matched_len, matched_queue_item))
 		} else {
 			None
 		}

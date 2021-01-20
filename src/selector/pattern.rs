@@ -10,11 +10,8 @@ use crate::utils::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
+use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, fmt::Debug, usize};
-use std::{
-	sync::{Arc, Mutex},
-	vec,
-};
 
 pub type FromParamsFn =
 	Box<dyn Fn(&str, &str) -> Result<Box<dyn Pattern>, String> + Send + 'static>;
@@ -36,6 +33,10 @@ pub struct Matched {
 }
 pub trait Pattern: Send + Sync + Debug {
 	fn matched(&self, chars: &[char]) -> Option<Matched>;
+	// check if nested pattern
+	fn is_nested(&self) -> bool {
+		false
+	}
 	// get a pattern trait object
 	fn from_params(s: &str, _p: &str) -> Result<Box<dyn Pattern>, String>
 	where
@@ -188,7 +189,7 @@ impl Pattern for Spaces {
 		if !s.trim().is_empty() {
 			let rule: [Box<dyn Pattern>; 3] = [Box::new('('), Box::new(Index::default()), Box::new(')')];
 			let chars: Vec<char> = s.chars().collect();
-			let (result, _, match_all) = exec(&rule, &chars);
+			let (result, _, _, match_all) = exec(&rule, &chars);
 			if !match_all {
 				return Err(format!("Wrong 'Spaces{}'", s));
 			}
@@ -444,6 +445,24 @@ impl<'a> RegExp<'a> {
 	}
 }
 
+/// Nested
+#[derive(Debug, Default)]
+pub struct NestedSelector;
+
+impl Pattern for NestedSelector {
+	fn matched(&self, _chars: &[char]) -> Option<Matched> {
+		None
+	}
+	// from params to pattern
+	fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+		check_params_return(&[s, p], || Box::new(NestedSelector::default()))
+	}
+	// set to be nested
+	fn is_nested(&self) -> bool {
+		true
+	}
+}
+
 pub fn add_pattern(name: &'static str, from_handle: FromParamsFn) {
 	let mut patterns = PATTERNS.lock().unwrap();
 	if patterns.get(name).is_some() {
@@ -461,6 +480,7 @@ pub(crate) fn init() {
 	add_pattern("index", Box::new(Index::from_params));
 	add_pattern("nth", Box::new(Nth::from_params));
 	add_pattern("regexp", Box::new(RegExp::from_params));
+	add_pattern("selector", Box::new(NestedSelector::from_params));
 }
 
 pub fn to_pattern(name: &str, s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
@@ -471,18 +491,20 @@ pub fn to_pattern(name: &str, s: &str, p: &str) -> Result<Box<dyn Pattern>, Stri
 	no_implemented(name);
 }
 
-pub fn exec(queues: &[Box<dyn Pattern>], chars: &[char]) -> (Vec<Matched>, usize, bool) {
+pub fn exec(queues: &[Box<dyn Pattern>], chars: &[char]) -> (Vec<Matched>, usize, usize, bool) {
 	let mut start_index = 0;
 	let mut result: Vec<Matched> = Vec::with_capacity(queues.len());
+	let mut matched_num: usize = 0;
 	for item in queues {
 		if let Some(matched) = item.matched(&chars[start_index..]) {
 			start_index += matched.chars.len();
+			matched_num += 1;
 			result.push(matched);
 		} else {
 			break;
 		}
 	}
-	(result, start_index, start_index == chars.len())
+	(result, start_index, matched_num, start_index == chars.len())
 }
 
 pub fn check_params_return<F: Fn() -> Box<dyn Pattern>>(

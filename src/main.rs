@@ -4,9 +4,9 @@ use ntree::{self, rules};
 
 fn main() {
 	ntree::init();
-	let mut q: Selector = "p:first-of-type".into();
+	let mut q: Selector = ":not(.a)".into();
 	// q.head_combinator(Combinator::Children);
 	println!("q is {:?}", q);
-	let q2: Selector = "> * > p:first-of-type".into();
-	println!("{:?}", q2);
+	// let q2: Selector = "> * > p:first-of-type".into();
+	// println!("{:?}", q2);
 }

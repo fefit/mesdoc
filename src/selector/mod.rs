@@ -3,12 +3,15 @@ pub mod pattern;
 pub mod rule;
 
 use lazy_static::lazy_static;
-use pattern::Matched;
+use pattern::{exec, Matched, Pattern};
 use rule::{Rule, RULES};
-use std::sync::{Arc, Mutex};
+use std::{
+	collections::HashMap,
+	sync::{Arc, Mutex},
+};
 lazy_static! {
-  static ref SPLITTER: Mutex<Rule> = Mutex::new(Rule::from(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
-  static ref ALL_RULE: Mutex<Option<Arc<Rule>>> = Mutex::new(None);
+	static ref SPLITTER: Mutex<Rule> = Mutex::new(Rule::from(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
+	static ref ALL_RULE: Mutex<Option<Arc<Rule>>> = Mutex::new(None);
 }
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum Combinator {
@@ -27,9 +30,9 @@ pub enum Combinator {
 	// reverse for next siblings
 	PrevAll,
 	// reverse for next sibling
-  Prev,
-  // siblings
-  Siblings,
+	Prev,
+	// siblings
+	Siblings,
 	// chain selectors
 	Chain,
 }
@@ -82,7 +85,6 @@ impl Selector {
 		}
 	}
 	pub fn from_str(selector: &str, use_lookup: bool) -> Self {
-		let splitter = SPLITTER.lock().unwrap();
 		let chars: Vec<char> = selector.chars().collect();
 		let total_len = chars.len();
 		let mut selector = Selector::new();
@@ -92,11 +94,13 @@ impl Selector {
 			let mut prev_in = PrevInSelector::Begin;
 			let mut last_in = prev_in;
 			let mut groups: SelectorGroups = Vec::new();
+			let splitter = SPLITTER.lock().unwrap();
+			let rules = RULES.lock().unwrap();
 			Selector::add_group(&mut groups);
 			while index < total_len {
 				let next_chars = &chars[index..];
 				// first check if combinator
-				if let Some((matched, len)) = splitter.exec(next_chars) {
+				if let Some((matched, len, _)) = splitter.exec(next_chars) {
 					let op = matched[0].chars.iter().collect::<String>();
 					let op = op.trim();
 					if prev_in == PrevInSelector::Splitter {
@@ -138,15 +142,30 @@ impl Selector {
 					prev_in = PrevInSelector::Selector;
 					last_in = prev_in;
 				}
-				let rules = RULES.lock().unwrap();
 				let mut finded = false;
 				for (_, r) in rules.iter() {
-					if let Some((matched, len)) = r.exec(next_chars) {
+					if let Some((mut matched, len, queue_num)) = r.exec(next_chars) {
 						// find the rule
 						index += len;
-						// push to selector
-						Selector::add_group_item(&mut groups, (Arc::clone(r), matched, comb), is_new_item);
-						finded = true;
+						let queues = &r.queues;
+						if queue_num == queues.len() {
+							// push to selector
+							Selector::add_group_item(&mut groups, (Arc::clone(r), matched, comb), is_new_item);
+							finded = true;
+						} else if queues[queue_num].is_nested() {
+							// nested selector
+							let (len, nested_matched) = Selector::parse_most(
+								&chars[index..],
+								&queues[queue_num + 1..],
+								&rules,
+								&splitter,
+								0,
+							);
+							index += len;
+							matched.extend(nested_matched);
+							Selector::add_group_item(&mut groups, (Arc::clone(r), matched, comb), is_new_item);
+							finded = true;
+						}
 						break;
 					}
 				}
@@ -245,42 +264,102 @@ impl Selector {
 					Combinator::ChildrenAll => rule[0].2 = comb,
 					_ => {
 						let segment = Selector::make_comb_all(comb);
-						v.insert(
-							0,
-						vec![segment],
-						);
+						v.insert(0, vec![segment]);
 					}
 				};
 			}
 		}
-  }
-  // make '*' with combinator 
-  pub fn make_comb_all(comb: Combinator) -> SelectorSegment{
-    let mut all_rule = ALL_RULE.lock().unwrap();
-    if all_rule.is_none() {
-      let rules = RULES.lock().unwrap();
-      *all_rule = rules.get("all").map(|r| Arc::clone(r));
-    }
-    let cur_rule = Arc::clone(all_rule.as_ref().unwrap());
-    (
-      cur_rule,
-      vec![Matched {
-        chars: vec!['*'],
-        ..Default::default()
-      }],
-      comb,
-    )
-  }
-  // build a selector from a segment 
-  pub fn from_segment(segment: SelectorSegment) -> Self {
-    let process = QueryProcess{
-      query: vec![vec![segment]],
-      should_in: None
-    };
-    Selector {
-      process: vec![process]
-    }
-  }
+	}
+	// make '*' with combinator
+	pub fn make_comb_all(comb: Combinator) -> SelectorSegment {
+		let mut all_rule = ALL_RULE.lock().unwrap();
+		if all_rule.is_none() {
+			let rules = RULES.lock().unwrap();
+			*all_rule = rules.get("all").map(|r| Arc::clone(r));
+		}
+		let cur_rule = Arc::clone(all_rule.as_ref().unwrap());
+		(
+			cur_rule,
+			vec![Matched {
+				chars: vec!['*'],
+				..Default::default()
+			}],
+			comb,
+		)
+	}
+	// build a selector from a segment
+	pub fn from_segment(segment: SelectorSegment) -> Self {
+		let process = QueryProcess {
+			query: vec![vec![segment]],
+			should_in: None,
+		};
+		Selector {
+			process: vec![process],
+		}
+	}
+	// parse until
+	pub fn parse_most(
+		chars: &[char],
+		until: &[Box<dyn Pattern>],
+		rules: &HashMap<&str, Arc<Rule>>,
+		splitter: &Rule,
+		level: usize,
+	) -> (usize, Vec<Matched>) {
+		let mut index = 0;
+		let total = chars.len();
+		let mut matched: Vec<Matched> = Vec::with_capacity(until.len() + 1);
+		while index < total {
+			let next_chars = &chars[index..];
+			if let Some((_, len, _)) = splitter.exec(next_chars) {
+				index += len;
+				continue;
+			}
+			let mut finded = false;
+			for (_, r) in rules.iter() {
+				if let Some((_, len, queue_num)) = r.exec(next_chars) {
+					let queues = &r.queues;
+					// find the rule
+					index += len;
+					if queue_num == queues.len() {
+						// push to selector
+						finded = true;
+					} else {
+						let (nest_count, _) = Selector::parse_most(
+							&chars[index..],
+							&queues[queue_num + 1..],
+							rules,
+							splitter,
+							level + 1,
+						);
+						index += nest_count;
+					}
+					break;
+				}
+			}
+			if !finded {
+				if level == 0 {
+					matched.push(Matched {
+						chars: chars[0..index].iter().copied().collect(),
+						name: "selector",
+						..Default::default()
+					});
+				}
+				if !until.is_empty() {
+					let (util_matched, count, queue_num, _) = exec(until, &chars[index..]);
+					if queue_num != until.len() {
+						panic!("nested selector parse error");
+					} else {
+						index += count;
+						if level == 0 {
+							matched.extend(util_matched);
+						}
+					}
+				}
+				break;
+			}
+		}
+		(index, matched)
+	}
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
