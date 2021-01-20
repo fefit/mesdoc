@@ -1,5 +1,5 @@
 use crate::utils::to_static_str;
-use std::result::Result as StdResult;
+use std::{result::Result as StdResult, usize};
 use std::{any::Any, mem::swap};
 
 use super::{Combinator, QueryProcess, Selector, SelectorSegment};
@@ -95,17 +95,18 @@ pub trait INodeTrait {
 	}
 	// get all childrens
 	fn childrens<'b>(&self) -> Result<'b> {
-		let mut result = self.children()?.cloned();
-		let count = result.length();
+		let childs = self.children()?;
+		let count = childs.length();
 		if count > 0 {
-			let mut descendants = NodeList::with_capacity(5);
-			let all_nodes = descendants.get_mut_ref();
-			for c in &result.nodes {
+			let mut result = NodeList::with_capacity(5);
+      let all_nodes = result.get_mut_ref();
+			for c in childs.get_ref() {
+        all_nodes.push(c.cloned());
 				all_nodes.extend(c.childrens()?);
-			}
-			result.get_mut_ref().extend(descendants);
+      }
+      return Ok(result);
 		}
-		Ok(result)
+		Ok(NodeList::new())
 	}
 	// next sibling
 	fn next_sibling<'b>(&self) -> MaybeResult<'b> {
@@ -174,7 +175,7 @@ pub trait INodeTrait {
 		Ok(result)
 	}
 	// siblings
-	fn siblings(&self) -> Result {
+	fn siblings<'b>(&self) -> Result<'b> {
 		let parent = self.parent()?;
 		let mut result = NodeList::with_capacity(2);
 		if let Some(p) = parent {
@@ -239,7 +240,7 @@ impl<'a> NodeList<'a> {
 	}
 	pub fn with_nodes(nodes: Vec<BoxDynNode<'a>>) -> Self {
 		NodeList { nodes }
-	}
+  }
 	pub fn get_ref(&self) -> &Vec<BoxDynNode<'a>> {
 		&self.nodes
 	}
@@ -256,25 +257,64 @@ impl<'a> NodeList<'a> {
 	}
 	pub(crate) fn get(&self, index: usize) -> Option<&BoxDynNode<'a>> {
 		self.get_ref().get(index)
-	}
+  } 
+
+  fn get_out(&mut self, index: usize) -> BoxDynNode<'a>{
+    self.nodes.remove(index)
+  }
+
 	pub fn length(&self) -> usize {
 		self.nodes.len()
 	}
 	pub fn is_empty(&self) -> bool {
 		self.length() == 0
+  }
+  // for all combinator selectors
+  fn select_with_comb<'b>(&self, selector: &str, comb: Combinator) -> Result<'b>{
+    if selector.is_empty(){
+      let segment = Selector::make_comb_all(comb);
+      let selector = Selector::from_segment(segment);
+      return self.find_selector(selector);
+    }
+    let mut selector: Selector = selector.into();
+    selector.head_combinator(comb);
+    self.find_selector(selector)
+  }
+  // prev
+  pub fn prev<'b>(&self, selector: &str) -> Result<'b>{
+    self.select_with_comb(selector, Combinator::Prev)
+  }
+  // prev_all
+  pub fn prev_all<'b>(&self, selector: &str) -> Result<'b>{
+    self.select_with_comb(selector, Combinator::PrevAll)
+  }
+  // next
+  pub fn next<'b>(&self, selector: &str) -> Result<'b> {
+    self.select_with_comb(selector, Combinator::Next)
+	}
+  // next_all
+  pub fn next_all<'b>(&self, selector: &str) -> Result<'b> {
+    self.select_with_comb(selector, Combinator::NextAll)
+  }
+  // siblings
+  pub fn siblings<'b>(&self, selector: &str) -> Result<'b> {
+    self.select_with_comb(selector, Combinator::Siblings)
 	}
 	// children
 	pub fn children<'b>(&self, selector: &str) -> Result<'b> {
-		if selector.is_empty() {
-			return self.find("> *");
-		}
-		let mut selector: Selector = selector.into();
-		selector.head_combinator(Combinator::Children);
-		self.find_by(selector)
+    self.select_with_comb(selector, Combinator::Children)
+  }
+  // parent
+	pub fn parent<'b>(&self, selector: &str) -> Result<'b> {
+    self.select_with_comb(selector, Combinator::Parent)
+  }
+  // parents
+	pub fn parents<'b>(&self, selector: &str) -> Result<'b> {
+    self.select_with_comb(selector, Combinator::ParentAll)
 	}
-	// for `find` and `children` method
-	fn find_by<'b>(&self, selector: Selector) -> Result<'b> {
-		let process = selector.process;
+	// for `find` and `select_with_comb`
+	fn find_selector<'b>(&self, selector: Selector) -> Result<'b> {
+    let process = selector.process;
 		let mut result = NodeList::with_capacity(5);
 		for p in process {
 			let QueryProcess {
@@ -363,11 +403,12 @@ impl<'a> NodeList<'a> {
 			}
 		}
 		Ok(result)
-	}
-	// filter some rule
-	pub fn find<'b>(&self, selector: &str) -> Result<'b> {
-		self.find_by(selector.into())
-	}
+  }
+  // `find`
+  pub fn find<'b>(&self, selector: &str) -> Result<'b>{
+    let selector: Selector = selector.into();
+    self.find_selector(selector)
+  }
 	// filter_by:
 	//          |   `loop_group:rule groups      |     'loop_node: node list
 	// Filter   |     match one rule item        |      should loop all nodes
@@ -495,16 +536,26 @@ impl<'a> NodeList<'a> {
 					// get children
 					let childs = node.children()?;
 					if !childs.is_empty() {
-						// apply rule
-						let match_childs = rule.apply(&childs, matched)?;
-						// merge to result
-						if !match_childs.is_empty() {
-							result.get_mut_ref().extend(match_childs);
-						}
-						let sub_childs = NodeList::select_by_rule(&childs, rule_item, comb)?;
-						if !sub_childs.is_empty() {
-							result.get_mut_ref().extend(sub_childs);
-						}
+            // apply rule
+            for child in childs.get_ref(){
+              let mut cur = NodeList::with_nodes(vec![child.cloned()]);
+              let is_matched = !rule.apply(&cur, matched)?.is_empty();
+              let sub_childs = child.children()?;
+              if !sub_childs.is_empty(){
+                // add has finded
+                if is_matched{
+                  result.get_mut_ref().push(child.cloned());
+                }
+                // search sub child
+                let sub_matched = NodeList::select_by_rule(&cur, rule_item, comb)?;
+                if !sub_matched.is_empty() {
+                  result.get_mut_ref().extend(sub_matched);
+                }
+              } else if is_matched{
+                // move the matched node out from cur
+                result.get_mut_ref().push(cur.get_out(0));    
+              }
+            }
 					}
 				}
 			}
@@ -584,7 +635,13 @@ impl<'a> NodeList<'a> {
 				if !prevs.is_empty() {
 					result = rule.apply(&prevs, matched)?;
 				}
-			}
+      }
+      Siblings => {
+        for node in node_list.get_ref() {
+					let siblings = node.siblings()?;
+					result.get_mut_ref().extend(rule.apply(&siblings, matched)?);
+				}
+      }
 			Chain => {
 				result = rule.apply(&node_list, matched)?;
 			}
@@ -745,7 +802,10 @@ impl<'a> NodeList<'a> {
 		for node in self.get_mut_ref() {
 			node.set_attribute(attr_name, value);
 		}
-	}
+  }
+  /** 
+   * dom insert api
+  */
 	/// pub fn `remove`
 	pub fn remove(self) {
 		for node in self.into_iter() {

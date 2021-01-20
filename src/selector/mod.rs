@@ -7,9 +7,10 @@ use pattern::Matched;
 use rule::{Rule, RULES};
 use std::sync::{Arc, Mutex};
 lazy_static! {
-	static ref SPLITTER: Mutex<Rule> = Mutex::new(Rule::from(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
+  static ref SPLITTER: Mutex<Rule> = Mutex::new(Rule::from(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
+  static ref ALL_RULE: Mutex<Option<Arc<Rule>>> = Mutex::new(None);
 }
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum Combinator {
 	// descendants
 	ChildrenAll,
@@ -26,7 +27,9 @@ pub enum Combinator {
 	// reverse for next siblings
 	PrevAll,
 	// reverse for next sibling
-	Prev,
+  Prev,
+  // siblings
+  Siblings,
 	// chain selectors
 	Chain,
 }
@@ -144,7 +147,6 @@ impl Selector {
 						// push to selector
 						Selector::add_group_item(&mut groups, (Arc::clone(r), matched, comb), is_new_item);
 						finded = true;
-
 						break;
 					}
 				}
@@ -231,7 +233,6 @@ impl Selector {
 	}
 	// change the combinator
 	pub fn head_combinator(&mut self, comb: Combinator) {
-		let mut all_rule: Option<Arc<Rule>> = None;
 		for p in &mut self.process {
 			let v = if let Some(should_in) = &mut p.should_in {
 				should_in
@@ -243,27 +244,43 @@ impl Selector {
 				match first_comb {
 					Combinator::ChildrenAll => rule[0].2 = comb,
 					_ => {
-						if all_rule.is_none() {
-							let rules = RULES.lock().unwrap();
-							all_rule = rules.get("all").map(|r| Arc::clone(r));
-						}
-						let cur_rule = Arc::clone(all_rule.as_ref().unwrap());
+						let segment = Selector::make_comb_all(comb);
 						v.insert(
 							0,
-							vec![(
-								cur_rule,
-								vec![Matched {
-									chars: vec!['*'],
-									..Default::default()
-								}],
-								comb,
-							)],
+						vec![segment],
 						);
 					}
 				};
 			}
 		}
-	}
+  }
+  // make '*' with combinator 
+  pub fn make_comb_all(comb: Combinator) -> SelectorSegment{
+    let mut all_rule = ALL_RULE.lock().unwrap();
+    if all_rule.is_none() {
+      let rules = RULES.lock().unwrap();
+      *all_rule = rules.get("all").map(|r| Arc::clone(r));
+    }
+    let cur_rule = Arc::clone(all_rule.as_ref().unwrap());
+    (
+      cur_rule,
+      vec![Matched {
+        chars: vec!['*'],
+        ..Default::default()
+      }],
+      comb,
+    )
+  }
+  // build a selector from a segment 
+  pub fn from_segment(segment: SelectorSegment) -> Self {
+    let process = QueryProcess{
+      query: vec![vec![segment]],
+      should_in: None
+    };
+    Selector {
+      process: vec![process]
+    }
+  }
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
