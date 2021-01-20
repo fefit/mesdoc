@@ -15,13 +15,14 @@ pub type Handle =
 	Box<dyn (for<'a, 'r> Fn(&'a NodeList<'r>, &'a RuleMatchedData) -> NResult<'r>) + Send + Sync>;
 
 pub type AliasRule = Box<dyn (Fn(&[Matched]) -> &'static str) + Send + Sync>;
+#[derive(Default)]
 pub struct Rule {
 	pub in_cache: bool,
 	pub priority: u32,
 	pub(crate) queues: Vec<Box<dyn Pattern>>,
-	fields: Vec<DataKey>,
-	handle: Option<Handle>,
-	alias: Option<AliasRule>,
+	pub(crate) fields: Vec<DataKey>,
+	pub(crate) handle: Option<Handle>,
+	pub(crate) alias: Option<AliasRule>,
 }
 
 impl fmt::Debug for Rule {
@@ -251,11 +252,7 @@ impl From<&str> for Rule {
 		}
 		Rule {
 			queues,
-			fields: Vec::with_capacity(3),
-			handle: None,
-			alias: None,
-			priority: 0,
-			in_cache: false,
+			..Default::default()
 		}
 	}
 }
@@ -314,35 +311,10 @@ impl Rule {
 		}
 		result
 	}
-	// set the data fields need to collect
-	pub fn set_params(
-		this: &mut Self,
-		priority: u32,
-		in_cache: bool,
-		fields: Vec<DataKey>,
-		handle: Option<Handle>,
-		alias: Option<AliasRule>,
-	) {
-		if !this.fields.is_empty() {
-			panic!("The rule's `set_params` can only call once");
-		}
-		this.fields = fields;
-		this.handle = handle;
-		this.priority = priority;
-		this.in_cache = in_cache;
-		this.alias = alias;
-	}
 	// add a rule
-	pub fn add(
-		context: &str,
-		priority: u32,
-		in_cache: bool,
-		fields: Vec<DataKey>,
-		handle: Option<Handle>,
-		alias: Option<AliasRule>,
-	) -> Self {
-		let mut rule: Rule = context.into();
-		Rule::set_params(&mut rule, priority, in_cache, fields, handle, alias);
+	pub fn add(context: &str, mut rule: Rule) -> Self {
+		let Rule { queues, .. } = context.into();
+		rule.queues = queues;
 		rule
 	}
 	// quick method to get param
@@ -366,32 +338,53 @@ pub struct RuleAliasItem(
 	pub AliasRule,
 );
 
-pub type RuleItem = (
-	&'static str,
-	&'static str,
-	u32,
-	bool,
-	Vec<DataKey>,
-	Option<Handle>,
-	Option<AliasRule>,
-);
+pub struct RuleItem {
+	pub(crate) rule: Rule,
+	pub(crate) context: &'static str,
+	pub(crate) name: &'static str,
+}
 
 impl From<RuleDefItem> for RuleItem {
 	fn from(item: RuleDefItem) -> Self {
-		(item.0, item.1, item.2, false, item.3, Some(item.4), None)
+		RuleItem {
+			name: item.0,
+			context: item.1,
+			rule: Rule {
+				priority: item.2,
+				in_cache: false,
+				fields: item.3,
+				handle: Some(item.4),
+				..Default::default()
+			},
+		}
 	}
 }
 
 impl From<RuleAliasItem> for RuleItem {
 	fn from(item: RuleAliasItem) -> Self {
-		(item.0, item.1, item.2, false, item.3, None, Some(item.4))
+		RuleItem {
+			name: item.0,
+			context: item.1,
+			rule: Rule {
+				priority: item.2,
+				in_cache: false,
+				fields: item.3,
+				alias: Some(item.4),
+				..Default::default()
+			},
+		}
 	}
 }
 
 pub fn add_rules(rules: Vec<RuleItem>) {
 	let mut all_rules = RULES.lock().unwrap();
-	for (name, context, priority, in_cache, fields, handle, alias) in rules {
-		let cur_rule = Rule::add(context, priority, in_cache, fields, handle, alias);
+	for RuleItem {
+		name,
+		context,
+		rule,
+	} in rules
+	{
+		let cur_rule = Rule::add(context, rule);
 		all_rules.insert(name, Arc::new(cur_rule));
 	}
 }

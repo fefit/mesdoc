@@ -426,18 +426,35 @@ impl<'a> NodeList<'a> {
 				let mut node_list = NodeList::with_nodes(vec![node.cloned()]);
 				let mut comb = Combinator::Chain;
 				// loop cur group's rule
-				'loop_rule: for rules in query.iter().rev() {
+				for rules in query.iter().rev() {
 					let first_rule = &rules[0];
-					node_list = NodeList::select_by_rule(&node_list, first_rule, Some(comb))?.unique();
-					if node_list.is_empty() {
-						break;
-					}
-					if rules.len() > 1 {
-						for rule in &rules[1..] {
-							node_list = NodeList::select_by_rule(&node_list, rule, None)?;
-							if node_list.is_empty() {
-								break 'loop_rule;
+					for (index, rule) in rules.iter().enumerate() {
+						let find_list: NodeList;
+						if index == 0 {
+							find_list = NodeList::select_by_rule(&node_list, rule, Some(comb))?.unique();
+						} else {
+							find_list = NodeList::select_by_rule(&node_list, rule, None)?;
+						}
+						if first_rule.0.in_cache {
+							// the node list is in cache
+							let total = find_list.length();
+							if total > 0 {
+								let mut last_list = NodeList::with_capacity(total);
+								let reverse_comb = comb.reverse();
+								for node in find_list.get_ref() {
+									if node_list.contains_node(node, &reverse_comb, None) {
+										last_list.push(node.cloned());
+									}
+								}
+								node_list = last_list;
+							} else {
+								node_list = find_list;
 							}
+						} else {
+							node_list = find_list;
+						}
+						if node_list.is_empty() {
+							break;
 						}
 					}
 					// change the comb into cur first rule's reverse comb.
@@ -495,6 +512,7 @@ impl<'a> NodeList<'a> {
 	}
 	// not
 	pub fn not<'b>(&self, selector: &str) -> Result<'b> {
+		println!("selector:{}, length: {}", selector, self.length());
 		self.filter_by(selector, FilterType::Not)
 	}
 	// unique the nodes
@@ -520,6 +538,7 @@ impl<'a> NodeList<'a> {
 		result
 	}
 	// select one rule
+	// the rule must not in cache
 	fn select_by_rule<'b>(
 		node_list: &'b NodeList<'a>,
 		rule_item: &'b SelectorSegment,
@@ -658,8 +677,9 @@ impl<'a> NodeList<'a> {
 				// in cache
 				let finded = rule.apply(&node_list, matched)?;
 				if !finded.is_empty() {
+					let reverse_comb = comb.reverse();
 					for node in finded.get_ref() {
-						if node_list.contains_node(node, &comb.reverse(), None) {
+						if node_list.contains_node(node, &reverse_comb, None) {
 							cur_result.push(node.cloned());
 						}
 					}
@@ -742,11 +762,18 @@ impl<'a> NodeList<'a> {
 			PrevAll => {
 				for node in node_list.get_ref() {
 					if let Ok(prevs) = node.previous_siblings() {
-						for node in prevs.get_ref() {
-							if self.includes(node) {
+						for prev in prevs.get_ref() {
+							if self.includes(prev) {
 								return true;
 							}
 						}
+					}
+				}
+			}
+			Chain => {
+				for node in node_list.get_ref() {
+					if self.includes(node) {
+						return true;
 					}
 				}
 			}

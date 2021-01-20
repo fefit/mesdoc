@@ -573,11 +573,15 @@ fn pseudo_not(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![("selector", 0)],
-		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result { Ok(nodes.cloned()) }),
+		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result {
+			let selector = Rule::param(&params, "selector").expect("selector param must have.");
+			nodes.not(selector)
+		}),
 	);
 	rules.push(rule.into());
 }
 
+// -----------jquery selectors----------
 /// pseudo selector: `:checkbox`
 fn pseudo_alias_checkbox(rules: &mut Vec<RuleItem>) {
 	let selector = ":checkbox";
@@ -612,6 +616,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 	pseudo_only_of_type(rules);
 	// not
 	pseudo_not(rules);
-	// alias
+	// ---- jquery selectors -----
+	// checkbox alias
 	pseudo_alias_checkbox(rules);
 }
