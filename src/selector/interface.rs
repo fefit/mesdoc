@@ -1,4 +1,4 @@
-use crate::utils::to_static_str;
+use crate::utils::{get_class_list, retain_by_index, to_static_str};
 use std::{any::Any, mem::swap};
 use std::{result::Result as StdResult, usize};
 
@@ -192,6 +192,7 @@ pub trait INodeTrait {
 	// attribute
 	fn get_attribute(&self, name: &str) -> Option<IAttrValue>;
 	fn set_attribute(&mut self, name: &str, value: Option<&str>);
+	fn remove_attribute(&mut self, name: &str);
 	fn has_attribute(&self, name: &str) -> bool {
 		self.get_attribute(name).is_some()
 	}
@@ -235,22 +236,23 @@ pub struct NodeList<'a> {
 }
 
 impl<'a> NodeList<'a> {
-	pub fn new() -> Self {
+	// crate only methods
+	pub(crate) fn new() -> Self {
 		Default::default()
 	}
-	pub fn with_nodes(nodes: Vec<BoxDynNode<'a>>) -> Self {
+	pub(crate) fn with_nodes(nodes: Vec<BoxDynNode<'a>>) -> Self {
 		NodeList { nodes }
 	}
-	pub fn get_ref(&self) -> &Vec<BoxDynNode<'a>> {
+	pub(crate) fn get_ref(&self) -> &Vec<BoxDynNode<'a>> {
 		&self.nodes
 	}
-	pub fn get_mut_ref(&mut self) -> &mut Vec<BoxDynNode<'a>> {
+	pub(crate) fn get_mut_ref(&mut self) -> &mut Vec<BoxDynNode<'a>> {
 		&mut self.nodes
 	}
 	pub(crate) fn push(&mut self, node: BoxDynNode<'a>) {
 		self.get_mut_ref().push(node);
 	}
-	pub fn with_capacity(size: usize) -> Self {
+	pub(crate) fn with_capacity(size: usize) -> Self {
 		NodeList {
 			nodes: Vec::with_capacity(size),
 		}
@@ -262,10 +264,11 @@ impl<'a> NodeList<'a> {
 	fn get_out(&mut self, index: usize) -> BoxDynNode<'a> {
 		self.nodes.remove(index)
 	}
-
+	/// pub fn `length`
 	pub fn length(&self) -> usize {
 		self.nodes.len()
 	}
+	/// pub fn `is_empty`
 	pub fn is_empty(&self) -> bool {
 		self.length() == 0
 	}
@@ -795,13 +798,6 @@ impl<'a> NodeList<'a> {
 		}
 		false
 	}
-	/// pub fn `html`
-	pub fn html(&self) -> &str {
-		if let Some(node) = self.get(0) {
-			return node.inner_html();
-		}
-		""
-	}
 	/// pub fn `text`
 	pub fn text(&self) -> &str {
 		let mut result = String::with_capacity(50);
@@ -809,6 +805,13 @@ impl<'a> NodeList<'a> {
 			result.push_str(node.text_content());
 		}
 		to_static_str(result)
+	}
+	/// pub fn `html`
+	pub fn html(&self) -> &str {
+		if let Some(node) = self.get(0) {
+			return node.inner_html();
+		}
+		""
 	}
 	/// pub fn `outer_html`
 	pub fn outer_html(&self) -> &str {
@@ -828,6 +831,89 @@ impl<'a> NodeList<'a> {
 	pub fn set_attr(&mut self, attr_name: &str, value: Option<&str>) {
 		for node in self.get_mut_ref() {
 			node.set_attribute(attr_name, value);
+		}
+	}
+	/// pub fn `remove_attr`
+	pub fn remove_attr(&mut self, attr_name: &str) {
+		for node in self.get_mut_ref() {
+			node.remove_attribute(attr_name);
+		}
+	}
+	/// pub fn `add_class`
+	pub fn add_class(&mut self, class_name: &str) {
+		const ATTR_CLASS: &str = "class";
+		let class_name = class_name.trim();
+		let class_list = get_class_list(class_name);
+		for node in self.get_mut_ref() {
+			let class_value = node.get_attribute(ATTR_CLASS);
+			if let Some(IAttrValue::Value(cls, _)) = class_value {
+				let mut orig_class_list = get_class_list(&cls);
+				for class_name in &class_list {
+					if !orig_class_list.contains(class_name) {
+						orig_class_list.push(class_name);
+					}
+				}
+				node.set_attribute(ATTR_CLASS, Some(orig_class_list.join(" ").as_str()));
+				continue;
+			}
+			node.set_attribute(ATTR_CLASS, Some(class_name));
+		}
+	}
+	/// pub fn `remove_class`
+	pub fn remove_class(&mut self, class_name: &str) {
+		const ATTR_CLASS: &str = "class";
+		let class_list = get_class_list(class_name);
+		for node in self.get_mut_ref() {
+			let class_value = node.get_attribute(ATTR_CLASS);
+			if let Some(IAttrValue::Value(cls, _)) = class_value {
+				let mut orig_class_list = get_class_list(&cls);
+				let mut removed_indexs: Vec<usize> = Vec::with_capacity(class_list.len());
+				for class_name in &class_list {
+					if let Some(index) = orig_class_list.iter().position(|name| name == class_name) {
+						removed_indexs.push(index);
+					}
+				}
+				if !removed_indexs.is_empty() {
+					retain_by_index(&mut orig_class_list, &removed_indexs);
+					node.set_attribute(ATTR_CLASS, Some(orig_class_list.join(" ").as_str()));
+				}
+			}
+		}
+	}
+	/// pub fn `toggle_class`
+	pub fn toggle_class(&mut self, class_name: &str) {
+		const ATTR_CLASS: &str = "class";
+		let class_name = class_name.trim();
+		let class_list = get_class_list(class_name);
+		let total = class_list.len();
+		for node in self.get_mut_ref() {
+			let class_value = node.get_attribute(ATTR_CLASS);
+			if let Some(IAttrValue::Value(cls, _)) = class_value {
+				let mut orig_class_list = get_class_list(&cls);
+				let mut removed_indexs: Vec<usize> = Vec::with_capacity(total);
+				let mut added_class_list: Vec<&str> = Vec::with_capacity(total);
+				for class_name in &class_list {
+					if let Some(index) = orig_class_list.iter().position(|name| name == class_name) {
+						removed_indexs.push(index);
+					} else {
+						added_class_list.push(class_name);
+					}
+				}
+				let mut need_set = false;
+				if !removed_indexs.is_empty() {
+					retain_by_index(&mut orig_class_list, &removed_indexs);
+					need_set = true;
+				}
+				if !added_class_list.is_empty() {
+					orig_class_list.extend(added_class_list);
+					need_set = true;
+				}
+				if need_set {
+					node.set_attribute(ATTR_CLASS, Some(orig_class_list.join(" ").as_str()));
+				}
+				continue;
+			}
+			node.set_attribute(ATTR_CLASS, Some(class_name));
 		}
 	}
 	// -----------------DOM API--------------
