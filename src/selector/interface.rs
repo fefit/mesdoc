@@ -237,33 +237,35 @@ pub struct NodeList<'a> {
 
 impl<'a> NodeList<'a> {
 	// crate only methods
-	pub(crate) fn new() -> Self {
+	pub fn new() -> Self {
 		Default::default()
 	}
-	pub(crate) fn with_nodes(nodes: Vec<BoxDynNode<'a>>) -> Self {
+	pub fn with_node(node: &BoxDynNode) -> Self {
+		NodeList {
+			nodes: vec![node.cloned()],
+		}
+	}
+	pub fn with_nodes(nodes: Vec<BoxDynNode<'a>>) -> Self {
 		NodeList { nodes }
 	}
-	pub(crate) fn get_ref(&self) -> &Vec<BoxDynNode<'a>> {
+	pub fn get_ref(&self) -> &Vec<BoxDynNode<'a>> {
 		&self.nodes
 	}
-	pub(crate) fn get_mut_ref(&mut self) -> &mut Vec<BoxDynNode<'a>> {
+	pub fn get_mut_ref(&mut self) -> &mut Vec<BoxDynNode<'a>> {
 		&mut self.nodes
 	}
-	pub(crate) fn push(&mut self, node: BoxDynNode<'a>) {
+	pub fn push(&mut self, node: BoxDynNode<'a>) {
 		self.get_mut_ref().push(node);
 	}
-	pub(crate) fn with_capacity(size: usize) -> Self {
+	pub fn with_capacity(size: usize) -> Self {
 		NodeList {
 			nodes: Vec::with_capacity(size),
 		}
 	}
-	pub(crate) fn get(&self, index: usize) -> Option<&BoxDynNode<'a>> {
+	pub fn get(&self, index: usize) -> Option<&BoxDynNode<'a>> {
 		self.get_ref().get(index)
 	}
 
-	fn get_out(&mut self, index: usize) -> BoxDynNode<'a> {
-		self.nodes.remove(index)
-	}
 	/// pub fn `length`
 	pub fn length(&self) -> usize {
 		self.nodes.len()
@@ -426,7 +428,7 @@ impl<'a> NodeList<'a> {
 			let mut ok_nums = 0;
 			'loop_group: for process in &selector.process {
 				let QueryProcess { query, .. } = process;
-				let mut node_list = NodeList::with_nodes(vec![node.cloned()]);
+				let mut node_list = NodeList::with_node(node);
 				let mut comb = Combinator::Chain;
 				// loop cur group's rule
 				for rules in query.iter().rev() {
@@ -515,8 +517,15 @@ impl<'a> NodeList<'a> {
 	}
 	// not
 	pub fn not<'b>(&self, selector: &str) -> Result<'b> {
-		println!("selector:{}, length: {}", selector, self.length());
 		self.filter_by(selector, FilterType::Not)
+	}
+	// eq
+	pub fn eq<'b>(&self, index: usize) -> Result<'b> {
+		if let Some(node) = self.get(index) {
+			Ok(NodeList::with_node(node))
+		} else {
+			Ok(NodeList::new())
+		}
 	}
 	// unique the nodes
 	fn unique<'b>(&self) -> NodeList<'b> {
@@ -540,6 +549,20 @@ impl<'a> NodeList<'a> {
 		}
 		result
 	}
+	// find a node and then remove it
+	fn find_out<'b>(node_list: &'b mut NodeList<'a>, item: &BoxDynNode) -> Option<BoxDynNode<'a>> {
+		let mut find_index: Option<usize> = None;
+		for (index, node) in node_list.get_ref().iter().enumerate() {
+			if node.is(item) {
+				find_index = Some(index);
+				break;
+			}
+		}
+		if let Some(index) = find_index {
+			return Some(node_list.get_mut_ref().remove(index));
+		}
+		None
+	}
 	// select one rule
 	// the rule must not in cache
 	fn select_by_rule<'b>(
@@ -559,23 +582,25 @@ impl<'a> NodeList<'a> {
 					let childs = node.children()?;
 					if !childs.is_empty() {
 						// apply rule
+						let mut matched_childs = rule.apply(&childs, matched)?;
 						for child in childs.get_ref() {
-							let mut cur = NodeList::with_nodes(vec![child.cloned()]);
-							let is_matched = !rule.apply(&cur, matched)?.is_empty();
+							let matched = NodeList::find_out(&mut matched_childs, child);
+							let is_matched = matched.is_some();
 							let sub_childs = child.children()?;
 							if !sub_childs.is_empty() {
 								// add has finded
 								if is_matched {
-									result.get_mut_ref().push(child.cloned());
+									result.get_mut_ref().push(matched.unwrap());
 								}
 								// search sub child
+								let cur = NodeList::with_node(child);
 								let sub_matched = NodeList::select_by_rule(&cur, rule_item, comb)?;
 								if !sub_matched.is_empty() {
 									result.get_mut_ref().extend(sub_matched);
 								}
 							} else if is_matched {
 								// move the matched node out from cur
-								result.get_mut_ref().push(cur.get_out(0));
+								result.get_mut_ref().push(matched.unwrap());
 							}
 						}
 					}
@@ -592,33 +617,30 @@ impl<'a> NodeList<'a> {
 			}
 			Parent => {
 				for node in node_list.get_ref() {
-					if let Some(pnode) = node.parent()? {
-						let cur_pnode = NodeList::with_nodes(vec![pnode.cloned()]);
-						let parent = rule.apply(&cur_pnode, matched)?;
-						if !parent.is_empty() {
-							result.get_mut_ref().extend(parent);
+					if let Some(parent) = &node.parent()? {
+						let plist = NodeList::with_node(parent);
+						let matched = rule.apply(&plist, matched)?;
+						if !matched.is_empty() {
+							result.get_mut_ref().extend(matched);
 						}
 					}
 				}
 			}
 			ParentAll => {
-				let mut ancestors = NodeList::with_capacity(node_list.length());
 				for node in node_list.get_ref() {
-					if let Some(pnode) = node.parent()? {
-						let cur_pnode = NodeList::with_nodes(vec![pnode.cloned()]);
-						let parent = rule.apply(&cur_pnode, matched)?;
-						if !parent.is_empty() {
-							result.get_mut_ref().extend(parent);
+					if let Some(parent) = &node.parent()? {
+						let plist = NodeList::with_node(parent);
+						let matched = rule.apply(&plist, matched)?;
+						if !matched.is_empty() {
+							result.get_mut_ref().extend(matched);
 						}
-						if let Some(ancestor) = pnode.parent()? {
-							ancestors.push(ancestor.cloned());
+						if parent.parent()?.is_some() {
+							let ancestors = NodeList::select_by_rule(&plist, rule_item, comb)?;
+							if !ancestors.is_empty() {
+								result.get_mut_ref().extend(ancestors);
+							}
 						}
 					}
-				}
-				if !ancestors.is_empty() {
-					result
-						.get_mut_ref()
-						.extend(NodeList::select_by_rule(&ancestors, rule_item, comb)?);
 				}
 			}
 			NextAll => {
@@ -712,7 +734,7 @@ impl<'a> NodeList<'a> {
 		comb: &Combinator,
 		lookup: Option<&'b [Vec<SelectorSegment>]>,
 	) -> bool {
-		let mut node_list = NodeList::with_nodes(vec![node.cloned()]);
+		let mut node_list = NodeList::with_node(node);
 		if let Some(lookup) = lookup {
 			for rules in lookup.iter().rev() {
 				if let Ok(finded) = NodeList::select(&node_list, rules) {

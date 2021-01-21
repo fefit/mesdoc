@@ -19,10 +19,11 @@ pub type AliasRule = Box<dyn (Fn(&[Matched]) -> &'static str) + Send + Sync>;
 pub struct Rule {
 	pub in_cache: bool,
 	pub priority: u32,
+	pub no_depth: bool,
 	pub(crate) queues: Vec<Box<dyn Pattern>>,
-	pub(crate) fields: Vec<DataKey>,
-	pub(crate) handle: Option<Handle>,
-	pub(crate) alias: Option<AliasRule>,
+	pub fields: Vec<DataKey>,
+	pub handle: Option<Handle>,
+	pub alias: Option<AliasRule>,
 }
 
 impl fmt::Debug for Rule {
@@ -339,9 +340,9 @@ pub struct RuleAliasItem(
 );
 
 pub struct RuleItem {
-	pub(crate) rule: Rule,
-	pub(crate) context: &'static str,
-	pub(crate) name: &'static str,
+	pub rule: Rule,
+	pub context: &'static str,
+	pub name: &'static str,
 }
 
 impl From<RuleDefItem> for RuleItem {

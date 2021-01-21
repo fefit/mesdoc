@@ -582,16 +582,45 @@ fn pseudo_not(rules: &mut Vec<RuleItem>) {
 }
 
 // -----------jquery selectors----------
-/// pseudo selector: `:checkbox`
-fn pseudo_alias_checkbox(rules: &mut Vec<RuleItem>) {
-	let selector = ":checkbox";
+
+/// pseudo selector: `:header`
+fn pseudo_alias_header(rules: &mut Vec<RuleItem>) {
+	let selector = ":header";
 	let name = selector;
 	let rule = RuleAliasItem(
 		name,
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|_| "[type=\"checkbox\"]"),
+		Box::new(|_| "h1,h2,h3,h4,h5,h6"),
+	);
+	rules.push(rule.into());
+}
+
+/// pseudo selector: `:input`
+fn pseudo_alias_input(rules: &mut Vec<RuleItem>) {
+	let selector = ":input";
+	let name = selector;
+	let rule = RuleAliasItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![],
+		Box::new(|_| "input,select,textarea,button"),
+	);
+	rules.push(rule.into());
+}
+
+/// pseudo selector: `:submit`
+fn pseudo_alias_submit(rules: &mut Vec<RuleItem>) {
+	let selector = ":submit";
+	let name = selector;
+	let rule = RuleAliasItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![],
+		Box::new(|_| "input[type='submit'],button[type='submit']"),
 	);
 	rules.push(rule.into());
 }
@@ -617,6 +646,10 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 	// not
 	pseudo_not(rules);
 	// ---- jquery selectors -----
-	// checkbox alias
-	pseudo_alias_checkbox(rules);
+	// :header alias
+	pseudo_alias_header(rules);
+	// :input alias
+	pseudo_alias_input(rules);
+	// :submit alias
+	pseudo_alias_submit(rules);
 }
