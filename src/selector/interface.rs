@@ -202,11 +202,13 @@ pub trait INodeTrait {
 	}
 	fn inner_html(&self) -> &str;
 	fn outer_html(&self) -> &str;
+	fn set_html(&mut self, content: &str);
 	// text
 	fn text_content(&self) -> &str;
 	fn text(&self) -> &str {
 		self.text_content()
 	}
+	fn set_text(&mut self, content: &str);
 	// append child, insert before, remove child
 	fn insert_adjacent(&mut self, position: &InsertPosition, node: &BoxDynNode);
 	fn remove_child(&mut self, node: BoxDynNode);
@@ -828,12 +830,26 @@ impl<'a> NodeList<'a> {
 		}
 		to_static_str(result)
 	}
+	/// pub fn `set_text`
+	pub fn set_text(&mut self, content: &str) -> &mut Self {
+		for node in self.get_mut_ref() {
+			node.set_text(content);
+		}
+		self
+	}
 	/// pub fn `html`
 	pub fn html(&self) -> &str {
 		if let Some(node) = self.get(0) {
 			return node.inner_html();
 		}
 		""
+	}
+	/// pub fn `set_html`
+	pub fn set_html(&mut self, content: &str) -> &mut Self {
+		for node in self.get_mut_ref() {
+			node.set_html(content);
+		}
+		self
 	}
 	/// pub fn `outer_html`
 	pub fn outer_html(&self) -> &str {
@@ -850,19 +866,21 @@ impl<'a> NodeList<'a> {
 		None
 	}
 	/// pub fn `set_attr`
-	pub fn set_attr(&mut self, attr_name: &str, value: Option<&str>) {
+	pub fn set_attr(&mut self, attr_name: &str, value: Option<&str>) -> &mut Self {
 		for node in self.get_mut_ref() {
 			node.set_attribute(attr_name, value);
 		}
+		self
 	}
 	/// pub fn `remove_attr`
-	pub fn remove_attr(&mut self, attr_name: &str) {
+	pub fn remove_attr(&mut self, attr_name: &str) -> &mut Self {
 		for node in self.get_mut_ref() {
 			node.remove_attribute(attr_name);
 		}
+		self
 	}
 	/// pub fn `add_class`
-	pub fn add_class(&mut self, class_name: &str) {
+	pub fn add_class(&mut self, class_name: &str) -> &mut Self {
 		const ATTR_CLASS: &str = "class";
 		let class_name = class_name.trim();
 		let class_list = get_class_list(class_name);
@@ -880,9 +898,10 @@ impl<'a> NodeList<'a> {
 			}
 			node.set_attribute(ATTR_CLASS, Some(class_name));
 		}
+		self
 	}
 	/// pub fn `remove_class`
-	pub fn remove_class(&mut self, class_name: &str) {
+	pub fn remove_class(&mut self, class_name: &str) -> &mut Self {
 		const ATTR_CLASS: &str = "class";
 		let class_list = get_class_list(class_name);
 		for node in self.get_mut_ref() {
@@ -901,9 +920,10 @@ impl<'a> NodeList<'a> {
 				}
 			}
 		}
+		self
 	}
 	/// pub fn `toggle_class`
-	pub fn toggle_class(&mut self, class_name: &str) {
+	pub fn toggle_class(&mut self, class_name: &str) -> &mut Self {
 		const ATTR_CLASS: &str = "class";
 		let class_name = class_name.trim();
 		let class_list = get_class_list(class_name);
@@ -937,6 +957,7 @@ impl<'a> NodeList<'a> {
 			}
 			node.set_attribute(ATTR_CLASS, Some(class_name));
 		}
+		self
 	}
 	// -----------------DOM API--------------
 	/// pub fn `remove`
