@@ -465,6 +465,7 @@ impl<'a> NodeList<'a> {
 				let QueryProcess { query, .. } = process;
 				let mut node_list = NodeList::with_node(node);
 				let mut comb = Combinator::Chain;
+				let mut last_must_match = true;
 				// loop cur group's rule
 				for rules in query.iter().rev() {
 					let first_rule = &rules[0];
@@ -475,14 +476,20 @@ impl<'a> NodeList<'a> {
 						} else {
 							find_list = NodeList::select_by_rule(&node_list, rule, None)?;
 						}
-						if first_rule.0.in_cache {
+						if rule.0.in_cache {
 							// the node list is in cache
 							let total = find_list.length();
 							if total > 0 {
 								let mut last_list = NodeList::with_capacity(total);
-								let reverse_comb = comb.reverse();
+								// the last rule or the chain rule must match the node list
+								if !(last_must_match || comb == Combinator::Chain) {
+									// otherwise change the node list to the real should matched node list
+									node_list = node_list.select_with_comb("", comb)?;
+									// test the find_list if in the real node_list,so change the comb to chain
+									comb = Combinator::Chain;
+								}
 								for node in find_list.get_ref() {
-									if node_list.has_node(node, &reverse_comb, None) {
+									if node_list.has_node(node, &comb, None) {
 										last_list.push(node.cloned());
 									}
 								}
@@ -499,6 +506,8 @@ impl<'a> NodeList<'a> {
 					}
 					// change the comb into cur first rule's reverse comb.
 					comb = first_rule.2.reverse();
+					// the last filter rule must in node list
+					last_must_match = false;
 				}
 				if node_list.is_empty() {
 					if is_not {
