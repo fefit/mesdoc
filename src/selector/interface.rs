@@ -443,17 +443,16 @@ impl<'a> NodeList<'a> {
 		let selector: Selector = selector.into();
 		self.find_selector(selector)
 	}
-	// filter_type:
+	// filter_type_handle:
 	//          |   `loop_group:rule groups      |     'loop_node: node list
 	// Filter   |     match one rule item        |      should loop all nodes
 	// Not      |        all not matched         |      should loop all nodes
 	// Is       |           all matched          |  once one node is not matched, break the loop
-	fn filter_type<'b>(
+	fn filter_type_handle<'b>(
 		&self,
-		selector: &str,
+		selector: &Selector,
 		filter_type: FilterType,
 	) -> StdResult<(NodeList<'b>, usize), KindError> {
-		let selector: Selector = Selector::from_str(selector, false);
 		let groups_num = selector.process.len();
 		let nodes = self.get_ref();
 		let total = nodes.len();
@@ -550,7 +549,7 @@ impl<'a> NodeList<'a> {
 	}
 	// filter in type
 	#[allow(clippy::unnecessary_wraps)]
-	fn filter_in_type<'b>(
+	fn filter_in_handle<'b>(
 		&self,
 		search: &NodeList,
 		filter_type: FilterType,
@@ -609,7 +608,10 @@ impl<'a> NodeList<'a> {
 
 	// filter
 	pub fn filter<'b>(&self, selector: &str) -> Result<'b> {
-		self.filter_type(selector, FilterType::Filter).map(|r| r.0)
+		let selector: Selector = Selector::from_str(selector, false);
+		self
+			.filter_type_handle(&selector, FilterType::Filter)
+			.map(|r| r.0)
 	}
 
 	// filter_by
@@ -627,11 +629,16 @@ impl<'a> NodeList<'a> {
 	}
 	// filter in
 	pub fn filter_in<'b>(&self, search: &NodeList) -> Result<'b> {
-		self.filter_in_type(search, FilterType::Filter).map(|r| r.0)
+		self
+			.filter_in_handle(search, FilterType::Filter)
+			.map(|r| r.0)
 	}
 	// is
 	pub fn is(&self, selector: &str) -> StdResult<bool, KindError> {
-		self.filter_type(selector, FilterType::Is).map(|r| r.1 > 0)
+		let selector: Selector = Selector::from_str(selector, false);
+		self
+			.filter_type_handle(&selector, FilterType::Is)
+			.map(|r| r.1 > 0)
 	}
 	// is by
 	pub fn is_by<F>(&self, handle: F) -> StdResult<bool, KindError>
@@ -650,13 +657,14 @@ impl<'a> NodeList<'a> {
 	// is in
 	pub fn is_in(&self, search: &NodeList) -> StdResult<bool, KindError> {
 		self
-			.filter_in_type(search, FilterType::IsAll)
+			.filter_in_handle(search, FilterType::IsAll)
 			.map(|r| r.1 > 0)
 	}
 	// is_all
 	pub fn is_all(&self, selector: &str) -> StdResult<bool, KindError> {
+		let selector: Selector = Selector::from_str(selector, false);
 		self
-			.filter_type(selector, FilterType::IsAll)
+			.filter_type_handle(&selector, FilterType::IsAll)
 			.map(|r| r.1 > 0 && r.1 == self.length())
 	}
 	// is_all_by
@@ -676,12 +684,15 @@ impl<'a> NodeList<'a> {
 	// is_all_in
 	pub fn is_all_in(&self, search: &NodeList) -> StdResult<bool, KindError> {
 		self
-			.filter_in_type(search, FilterType::IsAll)
+			.filter_in_handle(search, FilterType::IsAll)
 			.map(|r| r.1 > 0 && r.1 == self.length())
 	}
 	// not
 	pub fn not<'b>(&self, selector: &str) -> Result<'b> {
-		self.filter_type(selector, FilterType::Not).map(|r| r.0)
+		let selector: Selector = Selector::from_str(selector, false);
+		self
+			.filter_type_handle(&selector, FilterType::Not)
+			.map(|r| r.0)
 	}
 	// not by
 	pub fn not_by<'b, F>(&self, handle: F) -> Result<'b>
@@ -698,8 +709,50 @@ impl<'a> NodeList<'a> {
 	}
 	// not in
 	pub fn not_in<'b>(&self, search: &NodeList) -> Result<'b> {
-		self.filter_in_type(search, FilterType::Not).map(|r| r.0)
+		self.filter_in_handle(search, FilterType::Not).map(|r| r.0)
 	}
+
+	// has
+	pub fn has<'b>(&self, selector: &str) -> Result<'b> {
+		fn loop_handle(node: &BoxDynNode, selector: &Selector) -> StdResult<bool, KindError> {
+			let childs = node.children()?;
+			if !childs.is_empty() {
+				let (_, count) = childs.filter_type_handle(selector, FilterType::Is)?;
+				if count > 0 {
+					return Ok(true);
+				}
+				for child in childs.get_ref() {
+					if loop_handle(child, selector)? {
+						return Ok(true);
+					}
+				}
+			}
+			Ok(false)
+		}
+		let selector = Selector::from_str(selector, false);
+		self.filter_by(|_, ele| loop_handle(ele, &selector).unwrap_or(false))
+	}
+
+	// has_in
+	pub fn has_in<'b>(&self, search: &NodeList) -> Result<'b> {
+		fn loop_handle(node: &BoxDynNode, search: &NodeList) -> StdResult<bool, KindError> {
+			let childs = node.children()?;
+			if !childs.is_empty() {
+				let (_, count) = childs.filter_in_handle(search, FilterType::Is)?;
+				if count > 0 {
+					return Ok(true);
+				}
+				for child in childs.get_ref() {
+					if loop_handle(child, search)? {
+						return Ok(true);
+					}
+				}
+			}
+			Ok(false)
+		}
+		self.filter_by(|_, ele| loop_handle(ele, &search).unwrap_or(false))
+	}
+
 	// eq
 	pub fn eq<'b>(&self, index: usize) -> Result<'b> {
 		if let Some(node) = self.get(index) {
