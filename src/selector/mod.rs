@@ -233,7 +233,7 @@ impl Selector {
 				}
 			}
 			// if the first combinator is child, and the max_index > 1, use the max_index's rule first
-			if use_lookup && max_index > 1 {
+			if use_lookup && max_index > 0 {
 				let is_child = matches!(
 					group[0][0].2,
 					Combinator::Children | Combinator::ChildrenAll
@@ -361,26 +361,6 @@ impl Selector {
 			}
 		}
 		(index, matched)
-	}
-	// remove the not ChildrenAll process
-	pub fn not_childall_indexs(&self) -> Option<Vec<usize>> {
-		let process = &self.process;
-		let mut removed_indexs: Vec<usize> = Vec::with_capacity(process.len());
-		for (index, proces) in process.iter().enumerate() {
-			let QueryProcess { should_in, query } = proces;
-			let first_comb = if let Some(should_in) = should_in {
-				&should_in[0][0].2
-			} else {
-				&query[0][0].2
-			};
-			if *first_comb != Combinator::ChildrenAll {
-				removed_indexs.push(index);
-			}
-		}
-		if !removed_indexs.is_empty() {
-			return Some(removed_indexs);
-		}
-		None
 	}
 }
 

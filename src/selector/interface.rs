@@ -1,5 +1,5 @@
 use crate::utils::{get_class_list, retain_by_index, to_static_str};
-use std::{any::Any, mem::swap, ops::Range};
+use std::{any::Any, ops::Range};
 use std::{result::Result as StdResult, usize};
 
 use super::{Combinator, QueryProcess, Selector, SelectorSegment};
@@ -352,25 +352,26 @@ impl<'a> NodeList<'a> {
 		let mut result = NodeList::with_capacity(5);
 		for p in &selector.process {
 			let QueryProcess { should_in, query } = p;
-			let first = &query[0];
+			let first_query = &query[0];
 			let mut group: NodeList;
 			let mut start_rule_index: usize = 0;
 			if let Some(lookup) = should_in {
 				group = NodeList::with_capacity(5);
 				// get finded
-				let finded = NodeList::select(self, first, Some(&Combinator::ChildrenAll))?;
+				let finded = NodeList::select(self, first_query, Some(&Combinator::ChildrenAll))?;
 				if !finded.is_empty() {
-					let firsts = NodeList::select(self, &lookup[0], None)?;
-					if !firsts.is_empty() {
+					let tops = NodeList::select(self, &lookup[0], None)?;
+					if !tops.is_empty() {
 						// remove the first
 						start_rule_index = 1;
 						// check if the previous node and the current node are siblings.
 						let mut prev_node: Option<&BoxDynNode> = None;
 						let mut is_find = false;
-						let mut lookup_comb = first[0].2;
+						let first_comb = &first_query[0].2;
+						let lookup_comb = &first_comb.reverse();
 						for node in finded.get_ref() {
 							if prev_node.is_some() && NodeList::is_sibling(node, prev_node.unwrap()) {
-								match lookup_comb {
+								match first_comb {
 									Combinator::Next => {
 										if is_find {
 											// do nothing, because has finded the only sibling node matched.
@@ -397,7 +398,7 @@ impl<'a> NodeList<'a> {
 								};
 							}
 							// check if the node is in firsts
-							if firsts.has_node(node, &lookup_comb.reverse(), Some(&lookup[1..])) {
+							if tops.has_node(node, &lookup_comb, Some(&lookup[1..])) {
 								group.push(node.cloned());
 								is_find = true;
 							} else {
@@ -450,6 +451,7 @@ impl<'a> NodeList<'a> {
 		let mut matched_num = 0;
 		let is_not = *filter_type == FilterType::Not;
 		// loop for rules
+		#[inline]
 		fn loop_rules(
 			node_list: &mut NodeList,
 			query: &[Vec<SelectorSegment>],
@@ -458,9 +460,8 @@ impl<'a> NodeList<'a> {
 		) -> GenResult<Combinator> {
 			let mut comb = comb;
 			let mut last_must_match = last_must_match;
-			let rules_num = query.len();
 			// loop for the query
-			for (loop_index, rules) in query.iter().rev().enumerate() {
+			for rules in query.iter().rev() {
 				let first_rule = &rules[0];
 				for (index, rule) in rules.iter().enumerate() {
 					let find_list: NodeList;
@@ -480,7 +481,7 @@ impl<'a> NodeList<'a> {
 								// otherwise change the node list to the real should matched node list
 								*node_list = node_list.select_with_comb("", cur_comb)?;
 								// test the find_list if in the real node_list,so change the comb to chain
-								comb = cur_comb;
+								comb = Combinator::Chain;
 							}
 							for node in find_list.get_ref() {
 								if node_list.has_node(node, &comb, None) {
@@ -499,9 +500,7 @@ impl<'a> NodeList<'a> {
 					}
 				}
 				// change the comb into cur first rule's reverse comb.
-				if loop_index < rules_num - 1 {
-					comb = first_rule.2.reverse();
-				}
+				comb = first_rule.2.reverse();
 				// the last filter rule must in node list
 				last_must_match = false;
 			}
@@ -956,20 +955,24 @@ impl<'a> NodeList<'a> {
 	fn select<'b>(
 		node_list: &'b NodeList<'a>,
 		rules: &'b [SelectorSegment],
-		rep_comb: Option<&Combinator>,
+		comb: Option<&Combinator>,
 	) -> Result<'a> {
 		let mut node_list = node_list.cloned();
-		for rule_item in rules.iter() {
-			let (rule, matched, comb) = rule_item;
-			let comb = rep_comb.unwrap_or(comb);
+		for (index, rule_item) in rules.iter().enumerate() {
+			let (rule, matched, cur_comb) = rule_item;
+			let comb = if index == 0 {
+				comb.unwrap_or(cur_comb)
+			} else {
+				cur_comb
+			};
 			let mut cur_result = NodeList::with_capacity(5);
 			if rule.in_cache {
 				// in cache
 				let finded = rule.apply(&node_list, matched)?;
 				if !finded.is_empty() {
-					let loopup_comb = comb.reverse();
+					let lookup_comb = comb.reverse();
 					for node in finded.get_ref() {
-						if node_list.has_node(node, &loopup_comb, None) {
+						if node_list.has_node(node, &lookup_comb, None) {
 							cur_result.push(node.cloned());
 						}
 					}
@@ -1000,14 +1003,16 @@ impl<'a> NodeList<'a> {
 		lookup: Option<&'b [Vec<SelectorSegment>]>,
 	) -> bool {
 		let mut node_list = NodeList::with_node(node);
+		let mut comb = comb;
 		if let Some(lookup) = lookup {
 			for rules in lookup.iter().rev() {
-				if let Ok(finded) = NodeList::select(&node_list, rules, None) {
+				if let Ok(finded) = NodeList::select(&node_list, rules, Some(comb)) {
+					if node_list.is_empty() {
+						return false;
+					}
+					comb = &rules[0].2;
 					node_list = finded;
 				} else {
-					node_list = NodeList::new();
-				}
-				if node_list.is_empty() {
 					return false;
 				}
 			}
