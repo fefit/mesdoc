@@ -9,6 +9,7 @@ use std::{
 	collections::HashMap,
 	sync::{Arc, Mutex},
 };
+
 lazy_static! {
 	static ref SPLITTER: Mutex<Rule> = Mutex::new(Rule::from(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
 	static ref ALL_RULE: Mutex<Option<Arc<Rule>>> = Mutex::new(None);
@@ -71,6 +72,7 @@ pub struct QueryProcess {
 	pub should_in: Option<SelectorGroupsItem>,
 	pub query: SelectorGroupsItem,
 }
+
 #[derive(Debug, Default)]
 pub struct Selector {
 	pub process: Vec<QueryProcess>,
@@ -154,7 +156,7 @@ impl Selector {
 							finded = true;
 						} else if queues[queue_num].is_nested() {
 							// nested selector
-							let (len, nested_matched) = Selector::parse_most(
+							let (len, nested_matched) = Selector::parse_until(
 								&chars[index..],
 								&queues[queue_num + 1..],
 								&rules,
@@ -298,7 +300,7 @@ impl Selector {
 		}
 	}
 	// parse until
-	pub fn parse_most(
+	pub fn parse_until(
 		chars: &[char],
 		until: &[Box<dyn Pattern>],
 		rules: &HashMap<&str, Arc<Rule>>,
@@ -324,7 +326,7 @@ impl Selector {
 						// push to selector
 						finded = true;
 					} else {
-						let (nest_count, _) = Selector::parse_most(
+						let (nest_count, _) = Selector::parse_until(
 							&chars[index..],
 							&queues[queue_num + 1..],
 							rules,
@@ -359,6 +361,26 @@ impl Selector {
 			}
 		}
 		(index, matched)
+	}
+	// remove the not ChildrenAll process
+	pub fn not_childall_indexs(&self) -> Option<Vec<usize>> {
+		let process = &self.process;
+		let mut removed_indexs: Vec<usize> = Vec::with_capacity(process.len());
+		for (index, proces) in process.iter().enumerate() {
+			let QueryProcess { should_in, query } = proces;
+			let first_comb = if let Some(should_in) = should_in {
+				&should_in[0][0].2
+			} else {
+				&query[0][0].2
+			};
+			if *first_comb != Combinator::ChildrenAll {
+				removed_indexs.push(index);
+			}
+		}
+		if !removed_indexs.is_empty() {
+			return Some(removed_indexs);
+		}
+		None
 	}
 }
 

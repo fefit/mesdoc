@@ -8,7 +8,8 @@ pub type KindError = &'static str;
 pub type Result<'a> = StdResult<NodeList<'a>, KindError>;
 pub type MaybeResult<'a> = StdResult<Option<BoxDynNode<'a>>, KindError>;
 pub type MaybeDocResult = StdResult<Option<Box<dyn IDocumentTrait>>, KindError>;
-pub type EmptyResult = StdResult<(), KindError>;
+pub type GenResult<T> = StdResult<T, KindError>;
+pub type EmptyResult = GenResult<()>;
 pub type BoxDynNode<'a> = Box<dyn INodeTrait + 'a>;
 
 #[derive(Debug)]
@@ -308,11 +309,11 @@ impl<'a> NodeList<'a> {
 		if selector.is_empty() {
 			let segment = Selector::make_comb_all(comb);
 			let selector = Selector::from_segment(segment);
-			return self.find_selector(selector);
+			return self.find_selector(&selector);
 		}
 		let mut selector: Selector = selector.into();
 		selector.head_combinator(comb);
-		self.find_selector(selector)
+		self.find_selector(&selector)
 	}
 	// prev
 	pub fn prev<'b>(&self, selector: &str) -> Result<'b> {
@@ -347,38 +348,26 @@ impl<'a> NodeList<'a> {
 		self.select_with_comb(selector, Combinator::ParentAll)
 	}
 	// for `find` and `select_with_comb`
-	fn find_selector<'b>(&self, selector: Selector) -> Result<'b> {
-		let process = selector.process;
+	fn find_selector<'b>(&self, selector: &Selector) -> Result<'b> {
 		let mut result = NodeList::with_capacity(5);
-		for p in process {
-			let QueryProcess {
-				should_in,
-				mut query,
-			} = p;
-			let first = &mut query[0];
-			let mut lookup_comb = first[0].2;
+		for p in &selector.process {
+			let QueryProcess { should_in, query } = p;
+			let first = &query[0];
 			let mut group: NodeList;
-			if let Some(mut lookup) = should_in {
-				first[0].2 = Combinator::ChildrenAll;
+			let mut start_rule_index: usize = 0;
+			if let Some(lookup) = should_in {
 				group = NodeList::with_capacity(5);
 				// get finded
-				let finded = NodeList::select(self, first)?;
+				let finded = NodeList::select(self, first, Some(&Combinator::ChildrenAll))?;
 				if !finded.is_empty() {
-					let firsts = NodeList::select(self, &lookup[0])?;
+					let firsts = NodeList::select(self, &lookup[0], None)?;
 					if !firsts.is_empty() {
-						let lookup_rules = if lookup.len() > 1 {
-							for rule in &mut lookup[1..] {
-								swap(&mut rule[0].2, &mut lookup_comb);
-							}
-							Some(&lookup[1..])
-						} else {
-							None
-						};
 						// remove the first
-						query.remove(0);
+						start_rule_index = 1;
 						// check if the previous node and the current node are siblings.
 						let mut prev_node: Option<&BoxDynNode> = None;
 						let mut is_find = false;
+						let mut lookup_comb = first[0].2;
 						for node in finded.get_ref() {
 							if prev_node.is_some() && NodeList::is_sibling(node, prev_node.unwrap()) {
 								match lookup_comb {
@@ -408,7 +397,7 @@ impl<'a> NodeList<'a> {
 								};
 							}
 							// check if the node is in firsts
-							if firsts.has_node(node, &lookup_comb.reverse(), lookup_rules) {
+							if firsts.has_node(node, &lookup_comb.reverse(), Some(&lookup[1..])) {
 								group.push(node.cloned());
 								is_find = true;
 							} else {
@@ -423,9 +412,10 @@ impl<'a> NodeList<'a> {
 				group = self.cloned();
 			}
 			let mut is_empty = false;
+			let query = &query[start_rule_index..];
 			if !group.is_empty() && !query.is_empty() {
 				for rules in query {
-					group = NodeList::select(&group, &rules)?;
+					group = NodeList::select(&group, &rules, None)?;
 					if group.is_empty() {
 						is_empty = true;
 						break;
@@ -441,7 +431,7 @@ impl<'a> NodeList<'a> {
 	// `find`
 	pub fn find<'b>(&self, selector: &str) -> Result<'b> {
 		let selector: Selector = selector.into();
-		self.find_selector(selector)
+		self.find_selector(&selector)
 	}
 	// filter_type_handle:
 	//          |   `loop_group:rule groups      |     'loop_node: node list
@@ -451,63 +441,83 @@ impl<'a> NodeList<'a> {
 	fn filter_type_handle<'b>(
 		&self,
 		selector: &Selector,
-		filter_type: FilterType,
-	) -> StdResult<(NodeList<'b>, usize), KindError> {
+		filter_type: &FilterType,
+	) -> GenResult<(NodeList<'b>, usize)> {
 		let groups_num = selector.process.len();
 		let nodes = self.get_ref();
 		let total = nodes.len();
 		let mut result = NodeList::with_capacity(total);
 		let mut matched_num = 0;
-		let is_not = filter_type == FilterType::Not;
+		let is_not = *filter_type == FilterType::Not;
+		// loop for rules
+		fn loop_rules(
+			node_list: &mut NodeList,
+			query: &[Vec<SelectorSegment>],
+			comb: Combinator,
+			last_must_match: bool,
+		) -> GenResult<Combinator> {
+			let mut comb = comb;
+			let mut last_must_match = last_must_match;
+			let rules_num = query.len();
+			// loop for the query
+			for (loop_index, rules) in query.iter().rev().enumerate() {
+				let first_rule = &rules[0];
+				for (index, rule) in rules.iter().enumerate() {
+					let find_list: NodeList;
+					if index == 0 {
+						find_list = NodeList::select_by_rule(&node_list, rule, Some(&comb))?.unique();
+					} else {
+						find_list = NodeList::select_by_rule(&node_list, rule, None)?;
+					}
+					if rule.0.in_cache {
+						// the node list is in cache
+						let total = find_list.length();
+						if total > 0 {
+							let mut last_list = NodeList::with_capacity(total);
+							let cur_comb = if index == 0 { comb } else { rule.2 };
+							// the last rule or the chain rule must match the node list
+							if !(last_must_match || cur_comb == Combinator::Chain) {
+								// otherwise change the node list to the real should matched node list
+								*node_list = node_list.select_with_comb("", cur_comb)?;
+								// test the find_list if in the real node_list,so change the comb to chain
+								comb = cur_comb;
+							}
+							for node in find_list.get_ref() {
+								if node_list.has_node(node, &comb, None) {
+									last_list.push(node.cloned());
+								}
+							}
+							*node_list = last_list;
+						} else {
+							*node_list = find_list;
+						}
+					} else {
+						*node_list = find_list;
+					}
+					if node_list.is_empty() {
+						break;
+					}
+				}
+				// change the comb into cur first rule's reverse comb.
+				if loop_index < rules_num - 1 {
+					comb = first_rule.2.reverse();
+				}
+				// the last filter rule must in node list
+				last_must_match = false;
+			}
+			Ok(comb)
+		};
 		for node in nodes {
 			let mut ok_nums = 0;
-			'loop_group: for process in &selector.process {
-				let QueryProcess { query, .. } = process;
+			'loop_group: for process in selector.process.iter() {
+				let QueryProcess { query, should_in } = process;
 				let mut node_list = NodeList::with_node(node);
-				let mut comb = Combinator::Chain;
-				let mut last_must_match = true;
-				// loop cur group's rule
-				for rules in query.iter().rev() {
-					let first_rule = &rules[0];
-					for (index, rule) in rules.iter().enumerate() {
-						let find_list: NodeList;
-						if index == 0 {
-							find_list = NodeList::select_by_rule(&node_list, rule, Some(comb))?.unique();
-						} else {
-							find_list = NodeList::select_by_rule(&node_list, rule, None)?;
-						}
-						if rule.0.in_cache {
-							// the node list is in cache
-							let total = find_list.length();
-							if total > 0 {
-								let mut last_list = NodeList::with_capacity(total);
-								// the last rule or the chain rule must match the node list
-								if !(last_must_match || comb == Combinator::Chain) {
-									// otherwise change the node list to the real should matched node list
-									node_list = node_list.select_with_comb("", comb)?;
-									// test the find_list if in the real node_list,so change the comb to chain
-									comb = Combinator::Chain;
-								}
-								for node in find_list.get_ref() {
-									if node_list.has_node(node, &comb, None) {
-										last_list.push(node.cloned());
-									}
-								}
-								node_list = last_list;
-							} else {
-								node_list = find_list;
-							}
-						} else {
-							node_list = find_list;
-						}
-						if node_list.is_empty() {
-							break;
-						}
+				let comb = loop_rules(&mut node_list, &query, Combinator::Chain, true)?;
+				// may has `should_in` for `find` function
+				if let Some(should_in) = should_in {
+					if !node_list.is_empty() {
+						loop_rules(&mut node_list, &should_in, comb, false)?;
 					}
-					// change the comb into cur first rule's reverse comb.
-					comb = first_rule.2.reverse();
-					// the last filter rule must in node list
-					last_must_match = false;
 				}
 				if node_list.is_empty() {
 					if is_not {
@@ -562,7 +572,7 @@ impl<'a> NodeList<'a> {
 		&self,
 		search: &NodeList,
 		filter_type: FilterType,
-	) -> StdResult<(NodeList<'b>, usize), KindError> {
+	) -> GenResult<(NodeList<'b>, usize)> {
 		let nodes = self.get_ref();
 		let total = nodes.len();
 		let mut result = NodeList::with_capacity(total);
@@ -570,21 +580,21 @@ impl<'a> NodeList<'a> {
 		match filter_type {
 			FilterType::Filter => {
 				for node in nodes {
-					if search.contains(node) {
+					if search.includes(node) {
 						result.push(node.cloned());
 					}
 				}
 			}
 			FilterType::Not => {
 				for node in nodes {
-					if !search.contains(node) {
+					if !search.includes(node) {
 						result.push(node.cloned());
 					}
 				}
 			}
 			FilterType::Is => {
 				for node in nodes {
-					if search.contains(node) {
+					if search.includes(node) {
 						matched_num += 1;
 						break;
 					}
@@ -594,7 +604,7 @@ impl<'a> NodeList<'a> {
 				if total > search.length() {
 				} else {
 					for node in nodes {
-						if !search.contains(node) {
+						if !search.includes(node) {
 							break;
 						}
 						matched_num += 1;
@@ -605,21 +615,11 @@ impl<'a> NodeList<'a> {
 		Ok((result, matched_num))
 	}
 
-	// contains
-	fn contains(&self, node: &BoxDynNode) -> bool {
-		for cur_node in self.get_ref() {
-			if cur_node.is(node) {
-				return true;
-			}
-		}
-		false
-	}
-
 	// filter
 	pub fn filter<'b>(&self, selector: &str) -> Result<'b> {
 		let selector: Selector = Selector::from_str(selector, false);
 		self
-			.filter_type_handle(&selector, FilterType::Filter)
+			.filter_type_handle(&selector, &FilterType::Filter)
 			.map(|r| r.0)
 	}
 
@@ -643,14 +643,14 @@ impl<'a> NodeList<'a> {
 			.map(|r| r.0)
 	}
 	// is
-	pub fn is(&self, selector: &str) -> StdResult<bool, KindError> {
+	pub fn is(&self, selector: &str) -> GenResult<bool> {
 		let selector: Selector = Selector::from_str(selector, false);
 		self
-			.filter_type_handle(&selector, FilterType::Is)
+			.filter_type_handle(&selector, &FilterType::Is)
 			.map(|r| r.1 > 0)
 	}
 	// is by
-	pub fn is_by<F>(&self, handle: F) -> StdResult<bool, KindError>
+	pub fn is_by<F>(&self, handle: F) -> GenResult<bool>
 	where
 		F: Fn(usize, &BoxDynNode) -> bool,
 	{
@@ -664,20 +664,20 @@ impl<'a> NodeList<'a> {
 		Ok(flag)
 	}
 	// is in
-	pub fn is_in(&self, search: &NodeList) -> StdResult<bool, KindError> {
+	pub fn is_in(&self, search: &NodeList) -> GenResult<bool> {
 		self
 			.filter_in_handle(search, FilterType::IsAll)
 			.map(|r| r.1 > 0)
 	}
 	// is_all
-	pub fn is_all(&self, selector: &str) -> StdResult<bool, KindError> {
+	pub fn is_all(&self, selector: &str) -> GenResult<bool> {
 		let selector: Selector = Selector::from_str(selector, false);
 		self
-			.filter_type_handle(&selector, FilterType::IsAll)
+			.filter_type_handle(&selector, &FilterType::IsAll)
 			.map(|r| r.1 > 0 && r.1 == self.length())
 	}
 	// is_all_by
-	pub fn is_all_by<F>(&self, handle: F) -> StdResult<bool, KindError>
+	pub fn is_all_by<F>(&self, handle: F) -> GenResult<bool>
 	where
 		F: Fn(usize, &BoxDynNode) -> bool,
 	{
@@ -691,7 +691,7 @@ impl<'a> NodeList<'a> {
 		Ok(flag)
 	}
 	// is_all_in
-	pub fn is_all_in(&self, search: &NodeList) -> StdResult<bool, KindError> {
+	pub fn is_all_in(&self, search: &NodeList) -> GenResult<bool> {
 		self
 			.filter_in_handle(search, FilterType::IsAll)
 			.map(|r| r.1 > 0 && r.1 == self.length())
@@ -700,7 +700,7 @@ impl<'a> NodeList<'a> {
 	pub fn not<'b>(&self, selector: &str) -> Result<'b> {
 		let selector: Selector = Selector::from_str(selector, false);
 		self
-			.filter_type_handle(&selector, FilterType::Not)
+			.filter_type_handle(&selector, &FilterType::Not)
 			.map(|r| r.0)
 	}
 	// not by
@@ -723,10 +723,10 @@ impl<'a> NodeList<'a> {
 
 	// has
 	pub fn has<'b>(&self, selector: &str) -> Result<'b> {
-		fn loop_handle(node: &BoxDynNode, selector: &Selector) -> StdResult<bool, KindError> {
+		fn loop_handle(node: &BoxDynNode, selector: &Selector) -> GenResult<bool> {
 			let childs = node.children()?;
 			if !childs.is_empty() {
-				let (_, count) = childs.filter_type_handle(selector, FilterType::Is)?;
+				let (_, count) = childs.filter_type_handle(selector, &FilterType::Is)?;
 				if count > 0 {
 					return Ok(true);
 				}
@@ -744,7 +744,7 @@ impl<'a> NodeList<'a> {
 
 	// has_in
 	pub fn has_in<'b>(&self, search: &NodeList) -> Result<'b> {
-		fn loop_handle(node: &BoxDynNode, search: &NodeList) -> StdResult<bool, KindError> {
+		fn loop_handle(node: &BoxDynNode, search: &NodeList) -> GenResult<bool> {
 			let childs = node.children()?;
 			if !childs.is_empty() {
 				let (_, count) = childs.filter_in_handle(search, FilterType::Is)?;
@@ -826,11 +826,11 @@ impl<'a> NodeList<'a> {
 	// select one rule
 	// the rule must not in cache
 	fn select_by_rule<'b>(
-		node_list: &'b NodeList<'a>,
-		rule_item: &'b SelectorSegment,
-		comb: Option<Combinator>,
-	) -> Result<'a> {
-		let cur_comb = comb.unwrap_or(rule_item.2);
+		node_list: &NodeList<'b>,
+		rule_item: &SelectorSegment,
+		comb: Option<&Combinator>,
+	) -> Result<'b> {
+		let cur_comb = comb.unwrap_or(&rule_item.2);
 		let (rule, matched, ..) = rule_item;
 		let mut result = NodeList::with_capacity(5);
 		use Combinator::*;
@@ -953,18 +953,23 @@ impl<'a> NodeList<'a> {
 		Ok(result)
 	}
 	// select node by rules
-	fn select<'b>(node_list: &'b NodeList<'a>, rules: &'b [SelectorSegment]) -> Result<'a> {
+	fn select<'b>(
+		node_list: &'b NodeList<'a>,
+		rules: &'b [SelectorSegment],
+		rep_comb: Option<&Combinator>,
+	) -> Result<'a> {
 		let mut node_list = node_list.cloned();
 		for rule_item in rules.iter() {
 			let (rule, matched, comb) = rule_item;
+			let comb = rep_comb.unwrap_or(comb);
 			let mut cur_result = NodeList::with_capacity(5);
 			if rule.in_cache {
 				// in cache
 				let finded = rule.apply(&node_list, matched)?;
 				if !finded.is_empty() {
-					let reverse_comb = comb.reverse();
+					let loopup_comb = comb.reverse();
 					for node in finded.get_ref() {
-						if node_list.has_node(node, &reverse_comb, None) {
+						if node_list.has_node(node, &loopup_comb, None) {
 							cur_result.push(node.cloned());
 						}
 					}
@@ -997,7 +1002,7 @@ impl<'a> NodeList<'a> {
 		let mut node_list = NodeList::with_node(node);
 		if let Some(lookup) = lookup {
 			for rules in lookup.iter().rev() {
-				if let Ok(finded) = NodeList::select(&node_list, rules) {
+				if let Ok(finded) = NodeList::select(&node_list, rules, None) {
 					node_list = finded;
 				} else {
 					node_list = NodeList::new();
