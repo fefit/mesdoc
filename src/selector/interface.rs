@@ -1,9 +1,10 @@
 use crate::utils::{get_class_list, retain_by_index, to_static_str};
-use std::{any::Any, ops::Range};
+use std::{any::Any, cmp::Ordering, collections::VecDeque, ops::Range};
 use std::{result::Result as StdResult, usize};
 
 use super::{Combinator, QueryProcess, Selector, SelectorSegment};
 
+const ATTR_CLASS: &str = "class";
 pub type KindError = &'static str;
 pub type Result<'a> = StdResult<NodeList<'a>, KindError>;
 pub type MaybeResult<'a> = StdResult<Option<BoxDynNode<'a>>, KindError>;
@@ -17,6 +18,38 @@ pub enum IAttrValue {
 	Value(String, Option<char>),
 	True,
 }
+
+impl IAttrValue {
+	/// pub fn `is_true`
+	pub fn is_true(&self) -> bool {
+		matches!(self, IAttrValue::True)
+	}
+	/// pub fn `is_str`
+	pub fn is_str(&self, value: &str) -> bool {
+		match self {
+			IAttrValue::Value(v, _) => v == value,
+			IAttrValue::True => false,
+		}
+	}
+	/// pub fn `to_list`
+	pub fn to_list(&self) -> Vec<&str> {
+		match self {
+			IAttrValue::Value(v, _) => v.trim().split_ascii_whitespace().collect::<Vec<&str>>(),
+			IAttrValue::True => vec![],
+		}
+	}
+}
+
+/// impl `ToString` for IAttrValue
+impl ToString for IAttrValue {
+	fn to_string(&self) -> String {
+		match self {
+			IAttrValue::Value(v, _) => v.clone(),
+			IAttrValue::True => String::new(),
+		}
+	}
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum InsertPosition {
 	BeforeBegin,
@@ -283,7 +316,13 @@ impl<'a> NodeList<'a> {
 			}
 		}
 	}
-
+	// alias for `for_each`
+	pub fn each<F>(&mut self, handle: F)
+	where
+		F: Fn(usize, &mut BoxDynNode) -> bool,
+	{
+		self.for_each(handle);
+	}
 	// pub fn `map`
 	pub fn map<F, T: Sized>(&self, handle: F) -> Vec<T>
 	where
@@ -295,7 +334,45 @@ impl<'a> NodeList<'a> {
 		}
 		result
 	}
-
+	/// pub fn `sort`
+	pub fn sort(mut self) -> Self {
+		// get the node indexs in tree
+		fn get_tree_indexs(node: &BoxDynNode) -> VecDeque<usize> {
+			let mut indexs: VecDeque<usize> = VecDeque::with_capacity(5);
+			let mut cur_node = node.cloned();
+			while let Some(index) = cur_node.index() {
+				indexs.push_front(index);
+				if let Ok(Some(parent)) = cur_node.parent() {
+					cur_node = parent;
+				} else {
+					break;
+				}
+			}
+			indexs
+		}
+		// compare
+		fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
+			let a_total = a.len();
+			let b_total = b.len();
+			let loop_total = if a_total > b_total { b_total } else { a_total };
+			for i in 0..loop_total {
+				let a_index = a[i];
+				let b_index = b[i];
+				match a_index.cmp(&b_index) {
+					Ordering::Equal => continue,
+					order => return order,
+				}
+			}
+			Ordering::Equal
+		}
+		// sort
+		self.get_mut_ref().sort_by(|a, b| {
+			let a_indexs = get_tree_indexs(a);
+			let b_indexs = get_tree_indexs(b);
+			compare_indexs(&a_indexs, &b_indexs)
+		});
+		self
+	}
 	/// pub fn `length`
 	pub fn length(&self) -> usize {
 		self.nodes.len()
@@ -451,7 +528,6 @@ impl<'a> NodeList<'a> {
 		let mut matched_num = 0;
 		let is_not = *filter_type == FilterType::Not;
 		// loop for rules
-		#[inline]
 		fn loop_rules(
 			node_list: &mut NodeList,
 			query: &[Vec<SelectorSegment>],
@@ -1147,44 +1223,67 @@ impl<'a> NodeList<'a> {
 		}
 		self
 	}
-	/// pub fn `add_class`
-	pub fn add_class(&mut self, class_name: &str) -> &mut Self {
-		const ATTR_CLASS: &str = "class";
+	/// pub fn `has_class`
+	pub fn has_class(&self, class_name: &str) -> bool {
 		let class_name = class_name.trim();
-		let class_list = get_class_list(class_name);
-		for node in self.get_mut_ref() {
-			let class_value = node.get_attribute(ATTR_CLASS);
-			if let Some(IAttrValue::Value(cls, _)) = class_value {
-				let mut orig_class_list = get_class_list(&cls);
-				for class_name in &class_list {
-					if !orig_class_list.contains(class_name) {
-						orig_class_list.push(class_name);
+		if !class_name.is_empty() {
+			let class_list = get_class_list(class_name);
+			for node in self.get_ref() {
+				let class_value = node.get_attribute(ATTR_CLASS);
+				if let Some(IAttrValue::Value(cls, _)) = class_value {
+					let orig_class_list = get_class_list(&cls);
+					for class_name in &class_list {
+						// if any of element contains the class
+						if orig_class_list.contains(class_name) {
+							return true;
+						}
 					}
 				}
-				node.set_attribute(ATTR_CLASS, Some(orig_class_list.join(" ").as_str()));
-				continue;
 			}
-			node.set_attribute(ATTR_CLASS, Some(class_name));
+		}
+		false
+	}
+	/// pub fn `add_class`
+	pub fn add_class(&mut self, class_name: &str) -> &mut Self {
+		let class_name = class_name.trim();
+		if !class_name.is_empty() {
+			let class_list = get_class_list(class_name);
+			for node in self.get_mut_ref() {
+				let class_value = node.get_attribute(ATTR_CLASS);
+				if let Some(IAttrValue::Value(cls, _)) = class_value {
+					let mut orig_class_list = get_class_list(&cls);
+					for class_name in &class_list {
+						if !orig_class_list.contains(class_name) {
+							orig_class_list.push(class_name);
+						}
+					}
+					node.set_attribute(ATTR_CLASS, Some(orig_class_list.join(" ").as_str()));
+					continue;
+				}
+				node.set_attribute(ATTR_CLASS, Some(class_name));
+			}
 		}
 		self
 	}
 	/// pub fn `remove_class`
 	pub fn remove_class(&mut self, class_name: &str) -> &mut Self {
-		const ATTR_CLASS: &str = "class";
-		let class_list = get_class_list(class_name);
-		for node in self.get_mut_ref() {
-			let class_value = node.get_attribute(ATTR_CLASS);
-			if let Some(IAttrValue::Value(cls, _)) = class_value {
-				let mut orig_class_list = get_class_list(&cls);
-				let mut removed_indexs: Vec<usize> = Vec::with_capacity(class_list.len());
-				for class_name in &class_list {
-					if let Some(index) = orig_class_list.iter().position(|name| name == class_name) {
-						removed_indexs.push(index);
+		let class_name = class_name.trim();
+		if !class_name.is_empty() {
+			let class_list = get_class_list(class_name);
+			for node in self.get_mut_ref() {
+				let class_value = node.get_attribute(ATTR_CLASS);
+				if let Some(IAttrValue::Value(cls, _)) = class_value {
+					let mut orig_class_list = get_class_list(&cls);
+					let mut removed_indexs: Vec<usize> = Vec::with_capacity(class_list.len());
+					for class_name in &class_list {
+						if let Some(index) = orig_class_list.iter().position(|name| name == class_name) {
+							removed_indexs.push(index);
+						}
 					}
-				}
-				if !removed_indexs.is_empty() {
-					retain_by_index(&mut orig_class_list, &removed_indexs);
-					node.set_attribute(ATTR_CLASS, Some(orig_class_list.join(" ").as_str()));
+					if !removed_indexs.is_empty() {
+						retain_by_index(&mut orig_class_list, &removed_indexs);
+						node.set_attribute(ATTR_CLASS, Some(orig_class_list.join(" ").as_str()));
+					}
 				}
 			}
 		}
@@ -1192,38 +1291,39 @@ impl<'a> NodeList<'a> {
 	}
 	/// pub fn `toggle_class`
 	pub fn toggle_class(&mut self, class_name: &str) -> &mut Self {
-		const ATTR_CLASS: &str = "class";
 		let class_name = class_name.trim();
-		let class_list = get_class_list(class_name);
-		let total = class_list.len();
-		for node in self.get_mut_ref() {
-			let class_value = node.get_attribute(ATTR_CLASS);
-			if let Some(IAttrValue::Value(cls, _)) = class_value {
-				let mut orig_class_list = get_class_list(&cls);
-				let mut removed_indexs: Vec<usize> = Vec::with_capacity(total);
-				let mut added_class_list: Vec<&str> = Vec::with_capacity(total);
-				for class_name in &class_list {
-					if let Some(index) = orig_class_list.iter().position(|name| name == class_name) {
-						removed_indexs.push(index);
-					} else {
-						added_class_list.push(class_name);
+		if !class_name.is_empty() {
+			let class_list = get_class_list(class_name);
+			let total = class_list.len();
+			for node in self.get_mut_ref() {
+				let class_value = node.get_attribute(ATTR_CLASS);
+				if let Some(IAttrValue::Value(cls, _)) = class_value {
+					let mut orig_class_list = get_class_list(&cls);
+					let mut removed_indexs: Vec<usize> = Vec::with_capacity(total);
+					let mut added_class_list: Vec<&str> = Vec::with_capacity(total);
+					for class_name in &class_list {
+						if let Some(index) = orig_class_list.iter().position(|name| name == class_name) {
+							removed_indexs.push(index);
+						} else {
+							added_class_list.push(class_name);
+						}
 					}
+					let mut need_set = false;
+					if !removed_indexs.is_empty() {
+						retain_by_index(&mut orig_class_list, &removed_indexs);
+						need_set = true;
+					}
+					if !added_class_list.is_empty() {
+						orig_class_list.extend(added_class_list);
+						need_set = true;
+					}
+					if need_set {
+						node.set_attribute(ATTR_CLASS, Some(orig_class_list.join(" ").as_str()));
+					}
+					continue;
 				}
-				let mut need_set = false;
-				if !removed_indexs.is_empty() {
-					retain_by_index(&mut orig_class_list, &removed_indexs);
-					need_set = true;
-				}
-				if !added_class_list.is_empty() {
-					orig_class_list.extend(added_class_list);
-					need_set = true;
-				}
-				if need_set {
-					node.set_attribute(ATTR_CLASS, Some(orig_class_list.join(" ").as_str()));
-				}
-				continue;
+				node.set_attribute(ATTR_CLASS, Some(class_name));
 			}
-			node.set_attribute(ATTR_CLASS, Some(class_name));
 		}
 		self
 	}
