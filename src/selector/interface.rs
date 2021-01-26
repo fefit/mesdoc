@@ -676,8 +676,7 @@ impl<'a> NodeList<'a> {
 				}
 			}
 			FilterType::IsAll => {
-				if total > search.length() {
-				} else {
+				if total <= search.length() {
 					for node in nodes {
 						if !search.includes(node) {
 							break;
@@ -741,7 +740,7 @@ impl<'a> NodeList<'a> {
 	// is in
 	pub fn is_in(&self, search: &NodeList) -> GenResult<bool> {
 		self
-			.filter_in_handle(search, FilterType::IsAll)
+			.filter_in_handle(search, FilterType::Is)
 			.map(|r| r.1 > 0)
 	}
 	// is_all
