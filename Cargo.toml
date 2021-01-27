@@ -1,8 +1,14 @@
 [package]
-name = "ntree"
+name = "mesdoc"
 version = "0.1.0"
 authors = ["jxz_211 <jxz_211@163.com>"]
 edition = "2018"
+license = "MIT"
+keywords = ["html", "querySelectorAll", "dom"]
+repository = "https://github.com/fefit/mesdoc"
+categories = ["web-programming"]
+description = "An api to get ability to operate html document, include `querySelector` and other DOM operation."
+exclude = [".vscode/*.*", ".editorconfig"]
 
 [dependencies]
 lazy_static = "1.4.0"
