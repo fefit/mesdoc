@@ -46,7 +46,7 @@ A html node tree Query Selector API.
 
 ## 问题 & 建议 & Bugs?
 
-如果您何在使用过程中遇到任问题，或者有好的建议，欢迎提供 Issue. [Issue](https://github.com/fefit/ntree/issues)
+如果您何在使用过程中遇到任问题，或者有好的建议，欢迎提供 [Issue](https://github.com/fefit/ntree/issues).
 
 ## License
 
