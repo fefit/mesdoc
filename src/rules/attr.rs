@@ -1,16 +1,14 @@
 #![allow(clippy::or_fun_call)]
+use crate::interface::{IAttrValue, NodeList};
+use crate::selector::rule::RuleMatchedData;
 use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
-use crate::selector::{
-	interface::{IAttrValue, NodeList, Result},
-	rule::RuleMatchedData,
-};
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule = RuleDefItem(
 		"attr",
 		r##"[{spaces}{attr_key}{spaces}{regexp#(?:([~|^$*!]?)=\s*(?:"((?:\\?+.)*?)"|'((?:\\?+.)*?)'|([^\s'"<>/=`]+)))?#}{spaces}]"##,
 		10,
 		vec![("attr_key", 0), ("regexp", 0)],
-		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> Result {
+		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> NodeList {
 			let attr_key =
 				Rule::param(&params, "attr_key").expect("The attribute selector's key is not correct");
 			let attr_value = Rule::param(&params, ("regexp", 0, "2"))
@@ -65,14 +63,14 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 			} else {
 				Box::new(|val: Option<IAttrValue>| val.is_some())
 			};
-			let mut result: NodeList = NodeList::new();
+			let mut result = NodeList::new();
 			for node in nodes.get_ref() {
 				let cur_value = node.get_attribute(attr_key);
 				if handle(cur_value) {
 					result.push(node.cloned());
 				}
 			}
-			Ok(result)
+			result
 		}),
 	);
 	rules.push(rule.into());

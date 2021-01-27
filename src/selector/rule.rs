@@ -1,5 +1,5 @@
-use super::interface::{NodeList, Result as NResult};
 use super::pattern::{self, exec, to_pattern, Matched, Pattern};
+use crate::interface::NodeList;
 use crate::utils::{to_static_str, vec_char_to_clean_str};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ lazy_static! {
 
 pub type RuleMatchedData = HashMap<SavedDataKey, &'static str>;
 pub type Handle =
-	Box<dyn (for<'a, 'r> Fn(&'a NodeList<'r>, &'a RuleMatchedData) -> NResult<'r>) + Send + Sync>;
+	Box<dyn (for<'a, 'r> Fn(&'a NodeList<'r>, &'a RuleMatchedData) -> NodeList<'r>) + Send + Sync>;
 
 pub type AliasRule = Box<dyn (Fn(&[Matched]) -> &'static str) + Send + Sync>;
 #[derive(Default)]
@@ -267,7 +267,7 @@ impl Rule {
 			None
 		}
 	}
-	pub fn apply<'a, 'r>(&self, node_list: &'a NodeList<'r>, matched: &[Matched]) -> NResult<'r> {
+	pub fn apply<'a, 'r>(&self, node_list: &'a NodeList<'r>, matched: &[Matched]) -> NodeList<'r> {
 		if let Some(alias) = &self.alias {
 			let rule = alias(matched);
 			node_list.filter(rule)

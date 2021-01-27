@@ -31,11 +31,18 @@ A html node tree Query Selector API.
 
 ### `IDocumentTrait`
 
-| 方法                                                                   | 参数说明         |
-| :--------------------------------------------------------------------- | :--------------- |
-| `fn get_element_by_id<'b>(&self, id: &str) -> Option<BoxDynNode<'b>>;` | 通过 id 查找标签 |
+| 方法                                                                   | 参数说明                                                                                  |
+| :--------------------------------------------------------------------- | :---------------------------------------------------------------------------------------- |
+| `fn get_element_by_id<'b>(&self, id: &str) -> Option<BoxDynNode<'b>>;` | 通过 id 查找标签                                                                          |
+| `fn onerror(&self) -> Option<Rc<IErrorHandle>>`                        | 获取错误处理函数，如果需要针对错误进行处理，需要实现该方法。`Box<dyn Fn(Box<dyn Error>)>` |
 
 以上即为所有需要实现的接口，实现接口后，将获得类 jQuery API 操作 html 文档的能力，可参照其中的一个实现[https://github.com/fefit/visdom](https://github.com/fefit/visdom)，其 README 内有 API 支持的接口方法。
+
+## 接口说明
+
+- `uuid()` 方法用来获取节点的唯一标识符，trait 中默认实现了`is`方法来对比两个 node 节点是否相同，如果该对比方法对性能有所影响，可以将`is(&BoxDynNode)`方法重写，比如用指针进行比较。
+
+- `index()` 接口里默认实现了`index()`方法，用来动态计算当前节点在所有兄弟元素中所处的位置顺序，NodeList 里实现的`sort`方法依赖于它，如果你的 html 解析库默认已经有元素位置的存储字段，可以重写`index()`方法，这样将能提高`sort()`方法的性能。
 
 ## 问题 & 建议 & Bugs?
 

@@ -1,12 +1,13 @@
-pub mod interface;
 pub mod pattern;
 pub mod rule;
 
+use crate::error::Error;
 use lazy_static::lazy_static;
 use pattern::{exec, Matched, Pattern};
 use rule::{Rule, RULES};
 use std::{
 	collections::HashMap,
+	str::FromStr,
 	sync::{Arc, Mutex},
 };
 
@@ -86,8 +87,8 @@ impl Selector {
 			process: Vec::with_capacity(1),
 		}
 	}
-	pub fn from_str(selector: &str, use_lookup: bool) -> Self {
-		let chars: Vec<char> = selector.chars().collect();
+	pub fn from_str(context: &str, use_lookup: bool) -> Result<Self, Error> {
+		let chars: Vec<char> = context.chars().collect();
 		let total_len = chars.len();
 		let mut selector = Selector::new();
 		if total_len > 0 {
@@ -107,18 +108,24 @@ impl Selector {
 					let op = op.trim();
 					if prev_in == PrevInSelector::Splitter {
 						// wrong multiple combinator
-						panic!(
-							"Wrong combinator '{}' at index {}",
-							matched[0].chars.iter().collect::<String>(),
-							index
-						);
+						return Err(Error::InvalidSelector {
+							context: String::from(context),
+							reason: format!(
+								"Wrong combinator '{}' at index {}",
+								matched[0].chars.iter().collect::<String>(),
+								index
+							),
+						});
 					}
 					// find the match
 					index += len;
 					// set combinator
 					if op == "," {
 						if prev_in != PrevInSelector::Selector {
-							panic!("Wrong empty selector before ',' at index  {}", index);
+							return Err(Error::InvalidSelector {
+								context: String::from(context),
+								reason: format!("Wrong empty selector before ',' at index  {}", index),
+							});
 						}
 						Selector::add_group(&mut groups);
 						comb = Combinator::ChildrenAll;
@@ -173,20 +180,26 @@ impl Selector {
 				}
 				if !finded {
 					// no splitter, no selector rule
-					panic!(
-						"Unrecognized selector '{}' at index {}",
-						next_chars.iter().collect::<String>(),
-						index
-					);
+					return Err(Error::InvalidSelector {
+						context: String::from(context),
+						reason: format!(
+							"Unrecognized selector '{}' at index {}",
+							next_chars.iter().collect::<String>(),
+							index
+						),
+					});
 				}
 			}
 			if last_in != PrevInSelector::Selector {
-				panic!("Wrong selector rule at last")
+				return Err(Error::InvalidSelector {
+					context: String::from(context),
+					reason: String::from("Wrong selector rule at last"),
+				});
 			}
 			// optimize groups to query process
 			selector.optimize(groups, use_lookup);
 		}
-		selector
+		Ok(selector)
 	}
 	// add a selector group, splitted by ','
 	fn add_group(groups: &mut SelectorGroups) {
@@ -194,11 +207,12 @@ impl Selector {
 	}
 	// add a selector group item
 	fn add_group_item(groups: &mut SelectorGroups, item: SelectorSegment, is_new: bool) {
-		let last_group = groups.last_mut().unwrap();
-		if is_new {
-			last_group.push(vec![item]);
-		} else {
-			last_group.last_mut().unwrap().push(item);
+		if let Some(last_group) = groups.last_mut() {
+			if is_new {
+				last_group.push(vec![item]);
+			} else if let Some(last) = last_group.last_mut() {
+				last.push(item);
+			}
 		}
 	}
 	// optimize the parse process
@@ -279,7 +293,7 @@ impl Selector {
 			let rules = RULES.lock().unwrap();
 			*all_rule = rules.get("all").map(|r| Arc::clone(r));
 		}
-		let cur_rule = Arc::clone(all_rule.as_ref().unwrap());
+		let cur_rule = Arc::clone(all_rule.as_ref().expect("All rule must add to rules"));
 		(
 			cur_rule,
 			vec![Matched {
@@ -371,8 +385,9 @@ enum PrevInSelector {
 	Selector,
 }
 
-impl From<&str> for Selector {
-	fn from(selector: &str) -> Self {
+impl FromStr for Selector {
+	type Err = Error;
+	fn from_str(selector: &str) -> Result<Self, Self::Err> {
 		Selector::from_str(selector, true)
 	}
 }

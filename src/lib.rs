@@ -4,6 +4,10 @@ static INIT_LIB: Once = Once::new();
 pub mod rules;
 // export selector
 pub mod selector;
+// interface
+pub mod interface;
+// export error
+pub mod error;
 // utils for crate
 pub mod utils;
 // export init, must execute `init()` first
