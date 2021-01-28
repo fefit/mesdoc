@@ -1,4 +1,4 @@
-use crate::interface::{IAttrValue, NodeList};
+use crate::interface::{Elements, IAttrValue};
 use crate::selector::rule::RuleMatchedData;
 use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
 pub fn init(rules: &mut Vec<RuleItem>) {
@@ -7,10 +7,10 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		".{identity}",
 		1000,
 		vec![("identity", 0)],
-		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> NodeList {
+		Box::new(|nodes: &Elements, params: &RuleMatchedData| -> Elements {
 			let class_name =
 				Rule::param(&params, "identity").expect("The 'class' selector is not correct");
-			let mut result = NodeList::new();
+			let mut result = Elements::new();
 			for node in nodes.get_ref() {
 				if let Some(IAttrValue::Value(class_list, _)) = node.get_attribute("class") {
 					let class_list = class_list.split_ascii_whitespace();

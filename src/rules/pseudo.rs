@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::interface::{BoxDynNode, INodeType, NodeList};
+use crate::interface::{BoxDynElement, Elements, INodeType};
 use crate::selector::{
 	pattern::Nth,
 	rule::{RuleAliasItem, RuleMatchedData},
@@ -22,8 +22,8 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|nodes: &NodeList, _| -> NodeList {
-			let mut result = NodeList::with_capacity(DEF_NODES_LEN);
+		Box::new(|nodes: &Elements, _| -> Elements {
+			let mut result = Elements::with_capacity(DEF_NODES_LEN);
 			for node in nodes.get_ref() {
 				let child_nodes = node.child_nodes();
 				if child_nodes.is_empty() {
@@ -58,8 +58,8 @@ fn make_first_or_last_child(selector: &'static str, is_first: bool) -> RuleDefIt
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |nodes: &NodeList, _: &RuleMatchedData| -> NodeList {
-			let mut result = NodeList::with_capacity(DEF_NODES_LEN);
+		Box::new(move |nodes: &Elements, _: &RuleMatchedData| -> Elements {
+			let mut result = Elements::with_capacity(DEF_NODES_LEN);
 			let get_index = if is_first {
 				|_: usize| 0
 			} else {
@@ -96,12 +96,12 @@ fn pseudo_last_child(rules: &mut Vec<RuleItem>) {
 
 // group siblings
 struct SiblingsNodeData<'a> {
-	siblings: Vec<BoxDynNode<'a>>,
+	siblings: Vec<BoxDynElement<'a>>,
 	allow_indexs: Option<Vec<usize>>,
-	parent: Option<BoxDynNode<'a>>,
+	parent: Option<BoxDynElement<'a>>,
 }
 
-fn group_siblings_then_done<T, F>(nodes: &NodeList, allow_indexs_fn: T, mut cb: F)
+fn group_siblings_then_done<T, F>(nodes: &Elements, allow_indexs_fn: T, mut cb: F)
 where
 	T: Fn(usize) -> Option<Vec<usize>>,
 	F: FnMut(&mut SiblingsNodeData),
@@ -150,10 +150,13 @@ where
 // make for 'nth-child','nth-last-child'
 fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem {
 	let handle = if asc {
-		|siblings: &mut Vec<BoxDynNode>, allow_indexs: &[usize], childs: &NodeList| -> Vec<BoxDynNode> {
+		|siblings: &mut Vec<BoxDynElement>,
+		 allow_indexs: &[usize],
+		 childs: &Elements|
+		 -> Vec<BoxDynElement> {
 			// do with the siblings
 			let child_nodes = childs.get_ref();
-			let mut finded: Vec<BoxDynNode> = Vec::with_capacity(5);
+			let mut finded: Vec<BoxDynElement> = Vec::with_capacity(5);
 			for &index in allow_indexs {
 				if let Some(child) = child_nodes.get(index) {
 					let mut find_index: Option<usize> = None;
@@ -177,10 +180,10 @@ fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem 
 			finded
 		}
 	} else {
-		|siblings: &mut Vec<BoxDynNode>, allow_indexs: &[usize], childs: &NodeList| {
+		|siblings: &mut Vec<BoxDynElement>, allow_indexs: &[usize], childs: &Elements| {
 			// do with the siblings
 			let child_nodes = childs.get_ref();
-			let mut finded: Vec<BoxDynNode> = Vec::with_capacity(5);
+			let mut finded: Vec<BoxDynElement> = Vec::with_capacity(5);
 			for (i, child) in child_nodes.iter().rev().enumerate() {
 				if !allow_indexs.contains(&i) {
 					continue;
@@ -214,10 +217,10 @@ fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem 
 		PRIORITY,
 		vec![("nth", 0)],
 		Box::new(
-			move |nodes: &NodeList, params: &RuleMatchedData| -> NodeList {
+			move |nodes: &Elements, params: &RuleMatchedData| -> Elements {
 				let n = Rule::param(&params, ("nth", 0, "n"));
 				let index = Rule::param(&params, ("nth", 0, "index"));
-				let mut result: NodeList = NodeList::with_capacity(DEF_NODES_LEN);
+				let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
 				group_siblings_then_done(
 					nodes,
 					|total: usize| Some(Nth::get_allowed_indexs(n, index, total)),
@@ -265,8 +268,8 @@ fn make_first_or_last_of_type(selector: &'static str, is_first: bool) -> RuleDef
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |nodes: &NodeList, _: &RuleMatchedData| -> NodeList {
-			let mut result: NodeList = NodeList::with_capacity(DEF_NODES_LEN);
+		Box::new(move |nodes: &Elements, _: &RuleMatchedData| -> Elements {
+			let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
 			group_siblings_then_done(
 				nodes,
 				|_| None,
@@ -279,9 +282,9 @@ fn make_first_or_last_of_type(selector: &'static str, is_first: bool) -> RuleDef
 					let mut names: HashSet<String> = HashSet::with_capacity(5);
 					// handle
 					fn handle(
-						child: &BoxDynNode,
-						result: &mut NodeList,
-						siblings: &mut Vec<BoxDynNode>,
+						child: &BoxDynElement,
+						result: &mut Elements,
+						siblings: &mut Vec<BoxDynElement>,
 						names: &mut HashSet<String>,
 					) -> bool {
 						let name = child.tag_name();
@@ -345,9 +348,9 @@ fn pseudo_last_of_type(rules: &mut Vec<RuleItem>) {
 }
 
 fn handle_nth_of_type(
-	child: &BoxDynNode,
-	finded: &mut Vec<BoxDynNode>,
-	siblings: &mut Vec<BoxDynNode>,
+	child: &BoxDynElement,
+	finded: &mut Vec<BoxDynElement>,
+	siblings: &mut Vec<BoxDynElement>,
 	allow_indexs: &[usize],
 	names: &mut NameCountHashMap,
 ) -> bool {
@@ -400,8 +403,8 @@ fn make_asc_or_desc_nth_of_type(selector: &'static str, asc: bool) -> RuleDefIte
 		PRIORITY,
 		vec![("nth", 0)],
 		Box::new(
-			move |nodes: &NodeList, params: &RuleMatchedData| -> NodeList {
-				let mut result: NodeList = NodeList::with_capacity(DEF_NODES_LEN);
+			move |nodes: &Elements, params: &RuleMatchedData| -> Elements {
+				let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
 				let n = Rule::param(&params, ("nth", 0, "n"));
 				let index = Rule::param(&params, ("nth", 0, "index"));
 				group_siblings_then_done(
@@ -420,7 +423,7 @@ fn make_asc_or_desc_nth_of_type(selector: &'static str, asc: bool) -> RuleDefIte
 							.expect("parent must set in callback")
 							.children();
 						let mut names: NameCountHashMap = HashMap::with_capacity(5);
-						let mut finded: Vec<BoxDynNode> = Vec::with_capacity(5);
+						let mut finded: Vec<BoxDynElement> = Vec::with_capacity(5);
 						// loop
 						if asc {
 							for child in childs.get_ref() {
@@ -483,8 +486,8 @@ fn pseudo_only_child(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |nodes: &NodeList, _| -> NodeList {
-			let mut result = NodeList::with_capacity(DEF_NODES_LEN);
+		Box::new(move |nodes: &Elements, _| -> Elements {
+			let mut result = Elements::with_capacity(DEF_NODES_LEN);
 			for node in nodes.get_ref() {
 				if let Some(parent) = node.parent() {
 					let childs = parent.children();
@@ -508,8 +511,8 @@ fn pseudo_only_of_type(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |nodes: &NodeList, _| -> NodeList {
-			let mut result = NodeList::with_capacity(DEF_NODES_LEN);
+		Box::new(move |nodes: &Elements, _| -> Elements {
+			let mut result = Elements::with_capacity(DEF_NODES_LEN);
 			group_siblings_then_done(
 				nodes,
 				|_| None,
@@ -565,7 +568,7 @@ fn pseudo_not(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![("selector", 0)],
-		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> NodeList {
+		Box::new(|nodes: &Elements, params: &RuleMatchedData| -> Elements {
 			let selector = Rule::param(&params, "selector").expect("selector param must have.");
 			nodes.not(selector)
 		}),

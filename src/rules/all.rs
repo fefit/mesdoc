@@ -1,4 +1,4 @@
-use crate::interface::NodeList;
+use crate::interface::Elements;
 use crate::selector::rule::{RuleDefItem, RuleItem};
 /// selector: `*`
 pub fn init(rules: &mut Vec<RuleItem>) {
@@ -7,7 +7,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		"*",
 		0,
 		vec![],
-		Box::new(|nodes: &NodeList, _| -> NodeList { nodes.cloned() }),
+		Box::new(|nodes: &Elements, _| -> Elements { nodes.cloned() }),
 	)
 	.into();
 	rules.push(rule);

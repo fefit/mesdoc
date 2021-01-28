@@ -5,10 +5,12 @@ use std::error::Error;
 use std::rc::Rc;
 use std::{any::Any, cmp::Ordering, collections::VecDeque, ops::Range};
 const ATTR_CLASS: &str = "class";
-pub type MaybeNode<'a> = Option<BoxDynNode<'a>>;
+pub type MaybeElement<'a> = Option<BoxDynElement<'a>>;
 pub type MaybeDoc = Option<Box<dyn IDocumentTrait>>;
+pub type BoxDynElement<'a> = Box<dyn IElementTrait + 'a>;
 pub type BoxDynNode<'a> = Box<dyn INodeTrait + 'a>;
-
+pub type BoxDynText<'a> = Box<dyn ITextTrait + 'a>;
+pub type BoxDynUnuse<'a> = Box<dyn IUnuseTrait + 'a>;
 #[derive(Debug)]
 pub enum IAttrValue {
 	Value(String, Option<char>),
@@ -85,7 +87,7 @@ impl INodeType {
 }
 pub type IErrorHandle = Box<dyn Fn(Box<dyn Error>)>;
 pub trait IDocumentTrait {
-	fn get_element_by_id<'b>(&self, id: &str) -> Option<BoxDynNode<'b>>;
+	fn get_element_by_id<'b>(&self, id: &str) -> Option<BoxDynElement<'b>>;
 	fn onerror(&self) -> Option<Rc<IErrorHandle>> {
 		None
 	}
@@ -93,11 +95,130 @@ pub trait IDocumentTrait {
 pub trait INodeTrait {
 	fn to_node(self: Box<Self>) -> Box<dyn Any>;
 	// clone a node
-	fn cloned<'b>(&self) -> BoxDynNode<'b>;
-	// tag name
-	fn tag_name(&self) -> &str;
+	fn clone_node<'b>(&self) -> BoxDynNode<'b>;
+	// typed,whether element or text
+	fn typed<'b>(
+		self: Box<Self>,
+	) -> Result<BoxDynElement<'b>, Result<BoxDynText<'b>, BoxDynUnuse<'b>>>;
 	// get node type
 	fn node_type(&self) -> INodeType;
+	// find parents
+	fn parent<'b>(&self) -> MaybeElement<'b>;
+	// check if two node are the same
+	fn uuid(&self) -> Option<&str>;
+	// owner document
+	fn owner_document(&self) -> MaybeDoc;
+	// text
+	fn text_content(&self) -> &str;
+	fn text(&self) -> &str {
+		self.text_content()
+	}
+	fn set_text(&mut self, content: &str);
+	// set html
+	fn set_html(&mut self, content: &str);
+}
+
+pub trait ITextTrait: INodeTrait {}
+pub trait IUnuseTrait: INodeTrait {}
+#[derive(Default)]
+pub struct Texts<'a> {
+	nodes: Vec<BoxDynText<'a>>,
+}
+
+pub trait IElementTrait: INodeTrait {
+	fn is(&self, ele: &BoxDynElement) -> bool {
+		if let Some(uuid) = self.uuid() {
+			if let Some(o_uuid) = ele.uuid() {
+				return uuid == o_uuid;
+			}
+		}
+		false
+	}
+	fn cloned<'b>(&self) -> BoxDynElement<'b> {
+		let node = self.clone_node();
+		node.typed().ok().unwrap()
+	}
+	// next sibling
+	fn next_element_sibling<'b>(&self) -> MaybeElement<'b> {
+		let parent = self.parent();
+		if let Some(p) = &parent {
+			let childs = p.children();
+			let mut finded = false;
+			for c in childs.get_ref() {
+				if finded {
+					return Some(c.cloned());
+				}
+				if self.is(c) {
+					finded = true;
+				}
+			}
+		}
+		None
+	}
+	// next siblings
+	fn next_element_siblings<'b>(&self) -> Elements<'b> {
+		let parent = self.parent();
+		let mut result = Elements::with_capacity(2);
+		if let Some(p) = &parent {
+			let childs = p.children();
+			let mut finded = false;
+			for c in childs {
+				if finded {
+					result.push(c.cloned());
+				}
+				if self.is(&c) {
+					finded = true;
+				}
+			}
+		}
+		result
+	}
+	// prev
+	fn previous_element_sibling<'b>(&self) -> MaybeElement<'b> {
+		let parent = self.parent();
+		if let Some(p) = &parent {
+			let childs = p.children();
+			let mut prev: Option<BoxDynElement> = None;
+			for c in childs {
+				if self.is(&c) {
+					return prev.map(|n| n.cloned());
+				} else {
+					prev = Some(c);
+				}
+			}
+		}
+		None
+	}
+	// next siblings
+	fn previous_element_siblings<'b>(&self) -> Elements<'b> {
+		let parent = self.parent();
+		let mut result = Elements::with_capacity(2);
+		if let Some(p) = &parent {
+			let childs = p.children();
+			for c in childs {
+				if self.is(&c) {
+					break;
+				}
+				result.push(c.cloned());
+			}
+		}
+		result
+	}
+	// siblings
+	fn siblings<'b>(&self) -> Elements<'b> {
+		let parent = self.parent();
+		let mut result = Elements::with_capacity(2);
+		if let Some(p) = &parent {
+			let childs = p.children();
+			for c in childs {
+				if self.is(&c) {
+					continue;
+				}
+				result.push(c.cloned());
+			}
+		}
+		result
+	}
 	// get node index
 	fn index(&self) -> Option<usize> {
 		let parent = self.parent();
@@ -115,26 +236,27 @@ pub trait INodeTrait {
 		}
 		None
 	}
-	// find parents
-	fn parent<'b>(&self) -> MaybeNode<'b>;
+	// tag name
+	fn tag_name(&self) -> &str;
 	// childs
-	fn child_nodes<'b>(&self) -> NodeList<'b>;
-	fn children<'b>(&self) -> NodeList<'b> {
+	fn child_nodes<'b>(&self) -> Vec<BoxDynNode<'b>>;
+	fn children<'b>(&self) -> Elements<'b> {
 		let child_nodes = self.child_nodes();
-		let mut result = NodeList::with_capacity(child_nodes.length());
-		for node in child_nodes.get_ref() {
+		let mut result = Elements::with_capacity(child_nodes.len());
+		for node in child_nodes.iter() {
 			if let INodeType::Element = node.node_type() {
-				result.push(node.cloned());
+				let node = node.clone_node();
+				result.push(node.typed().ok().unwrap());
 			}
 		}
 		result
 	}
 	// get all childrens
-	fn childrens<'b>(&self) -> NodeList<'b> {
+	fn childrens<'b>(&self) -> Elements<'b> {
 		let childs = self.children();
 		let count = childs.length();
 		if count > 0 {
-			let mut result = NodeList::with_capacity(5);
+			let mut result = Elements::with_capacity(5);
 			let all_nodes = result.get_mut_ref();
 			for c in childs.get_ref() {
 				all_nodes.push(c.cloned());
@@ -142,88 +264,7 @@ pub trait INodeTrait {
 			}
 			return result;
 		}
-		NodeList::new()
-	}
-	// next sibling
-	fn next_element_sibling<'b>(&self) -> MaybeNode<'b> {
-		let parent = self.parent();
-		if let Some(p) = &parent {
-			let childs = p.children();
-			let mut finded = false;
-			for c in childs {
-				if finded {
-					return Some(c.cloned());
-				}
-				if self.is(&c) {
-					finded = true;
-				}
-			}
-		}
-		None
-	}
-	// next siblings
-	fn next_element_siblings<'b>(&self) -> NodeList<'b> {
-		let parent = self.parent();
-		let mut result = NodeList::with_capacity(2);
-		if let Some(p) = &parent {
-			let childs = p.children();
-			let mut finded = false;
-			for c in childs {
-				if finded {
-					result.push(c.cloned());
-				}
-				if self.is(&c) {
-					finded = true;
-				}
-			}
-		}
-		result
-	}
-	// prev
-	fn previous_element_sibling<'b>(&self) -> MaybeNode<'b> {
-		let parent = self.parent();
-		if let Some(p) = &parent {
-			let childs = p.children();
-			let mut prev: Option<BoxDynNode> = None;
-			for c in childs {
-				if self.is(&c) {
-					return prev.map(|n| n.cloned());
-				} else {
-					prev = Some(c);
-				}
-			}
-		}
-		None
-	}
-	// next siblings
-	fn previous_element_siblings<'b>(&self) -> NodeList<'b> {
-		let parent = self.parent();
-		let mut result = NodeList::with_capacity(2);
-		if let Some(p) = &parent {
-			let childs = p.children();
-			for c in childs {
-				if self.is(&c) {
-					break;
-				}
-				result.push(c.cloned());
-			}
-		}
-		result
-	}
-	// siblings
-	fn siblings<'b>(&self) -> NodeList<'b> {
-		let parent = self.parent();
-		let mut result = NodeList::with_capacity(2);
-		if let Some(p) = &parent {
-			let childs = p.children();
-			for c in childs {
-				if self.is(&c) {
-					continue;
-				}
-				result.push(c.cloned());
-			}
-		}
-		result
+		Elements::new()
 	}
 	// attribute
 	fn get_attribute(&self, name: &str) -> Option<IAttrValue>;
@@ -238,28 +279,14 @@ pub trait INodeTrait {
 	}
 	fn inner_html(&self) -> &str;
 	fn outer_html(&self) -> &str;
-	fn set_html(&mut self, content: &str);
-	// text
-	fn text_content(&self) -> &str;
-	fn text(&self) -> &str {
-		self.text_content()
-	}
-	fn set_text(&mut self, content: &str);
+
 	// append child, insert before, remove child
-	fn insert_adjacent(&mut self, position: &InsertPosition, node: &BoxDynNode);
-	fn remove_child(&mut self, node: BoxDynNode);
-	// check if two node are the same
-	fn uuid(&self) -> Option<&str>;
-	fn is(&self, node: &BoxDynNode) -> bool {
-		if let Some(uuid) = self.uuid() {
-			if let Some(o_uuid) = node.uuid() {
-				return uuid == o_uuid;
-			}
-		}
-		false
+	fn insert_adjacent(&mut self, position: &InsertPosition, node: &BoxDynElement);
+	fn remove_child(&mut self, node: BoxDynElement);
+	// texts
+	fn texts(&self, _limit: u32) -> Option<Texts> {
+		None
 	}
-	// owner document
-	fn owner_document(&self) -> MaybeDoc;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -270,21 +297,21 @@ enum FilterType {
 	IsAll,
 }
 #[derive(Default)]
-pub struct NodeList<'a> {
-	nodes: Vec<BoxDynNode<'a>>,
+pub struct Elements<'a> {
+	nodes: Vec<BoxDynElement<'a>>,
 }
 
-impl<'a> NodeList<'a> {
+impl<'a> Elements<'a> {
 	// crate only methods
-	pub(crate) fn with_node(node: &BoxDynNode) -> Self {
-		NodeList {
+	pub(crate) fn with_node(node: &BoxDynElement) -> Self {
+		Elements {
 			nodes: vec![node.cloned()],
 		}
 	}
-	pub(crate) fn push(&mut self, node: BoxDynNode<'a>) {
+	pub(crate) fn push(&mut self, node: BoxDynElement<'a>) {
 		self.get_mut_ref().push(node);
 	}
-	pub(crate) fn get(&self, index: usize) -> Option<&BoxDynNode<'a>> {
+	pub(crate) fn get(&self, index: usize) -> Option<&BoxDynElement<'a>> {
 		self.get_ref().get(index)
 	}
 	pub(crate) fn trigger_method<F, T: Default>(&self, method: &str, selector: &str, handle: F) -> T
@@ -317,28 +344,28 @@ impl<'a> NodeList<'a> {
 		Default::default()
 	}
 	// with nodes
-	pub fn with_nodes(nodes: Vec<BoxDynNode<'a>>) -> Self {
-		NodeList { nodes }
+	pub fn with_nodes(nodes: Vec<BoxDynElement<'a>>) -> Self {
+		Elements { nodes }
 	}
 	// with capacity
 	pub fn with_capacity(size: usize) -> Self {
-		NodeList {
+		Elements {
 			nodes: Vec::with_capacity(size),
 		}
 	}
 	// get ref
-	pub fn get_ref(&self) -> &Vec<BoxDynNode<'a>> {
+	pub fn get_ref(&self) -> &Vec<BoxDynElement<'a>> {
 		&self.nodes
 	}
 	// get mut ref
-	pub fn get_mut_ref(&mut self) -> &mut Vec<BoxDynNode<'a>> {
+	pub fn get_mut_ref(&mut self) -> &mut Vec<BoxDynElement<'a>> {
 		&mut self.nodes
 	}
 
 	// pub fn `for_each`
 	pub fn for_each<F>(&mut self, handle: F)
 	where
-		F: Fn(usize, &mut BoxDynNode) -> bool,
+		F: Fn(usize, &mut BoxDynElement) -> bool,
 	{
 		for (index, node) in self.get_mut_ref().iter_mut().enumerate() {
 			if !handle(index, node) {
@@ -349,14 +376,14 @@ impl<'a> NodeList<'a> {
 	// alias for `for_each`
 	pub fn each<F>(&mut self, handle: F)
 	where
-		F: Fn(usize, &mut BoxDynNode) -> bool,
+		F: Fn(usize, &mut BoxDynElement) -> bool,
 	{
 		self.for_each(handle);
 	}
 	// pub fn `map`
 	pub fn map<F, T: Sized>(&self, handle: F) -> Vec<T>
 	where
-		F: Fn(usize, &BoxDynNode) -> T,
+		F: Fn(usize, &BoxDynElement) -> T,
 	{
 		let mut result: Vec<T> = Vec::with_capacity(self.length());
 		for (index, node) in self.get_ref().iter().enumerate() {
@@ -367,7 +394,7 @@ impl<'a> NodeList<'a> {
 	/// pub fn `sort`
 	pub fn sort(mut self) -> Self {
 		// get the node indexs in tree
-		fn get_tree_indexs(node: &BoxDynNode) -> VecDeque<usize> {
+		fn get_tree_indexs(node: &BoxDynElement) -> VecDeque<usize> {
 			let mut indexs: VecDeque<usize> = VecDeque::with_capacity(5);
 			let mut cur_node = node.cloned();
 			while let Some(index) = cur_node.index() {
@@ -412,7 +439,7 @@ impl<'a> NodeList<'a> {
 		self.length() == 0
 	}
 	// for all combinator selectors
-	fn select_with_comb<'b>(&self, method: &str, selector: &str, comb: Combinator) -> NodeList<'b> {
+	fn select_with_comb<'b>(&self, method: &str, selector: &str, comb: Combinator) -> Elements<'b> {
 		if selector.is_empty() {
 			let segment = Selector::make_comb_all(comb);
 			let selector = Selector::from_segment(segment);
@@ -427,62 +454,62 @@ impl<'a> NodeList<'a> {
 		})
 	}
 	// prev
-	pub fn prev<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn prev<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("prev", selector, Combinator::Prev)
 	}
 	// prev_all
-	pub fn prev_all<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn prev_all<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("prev_all", selector, Combinator::PrevAll)
 	}
 	// next
-	pub fn next<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn next<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("next", selector, Combinator::Next)
 	}
 	// next_all
-	pub fn next_all<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn next_all<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("next_all", selector, Combinator::NextAll)
 	}
 	// siblings
-	pub fn siblings<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn siblings<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("siblings", selector, Combinator::Siblings)
 	}
 	// children
-	pub fn children<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn children<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("children", selector, Combinator::Children)
 	}
 	// parent
-	pub fn parent<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn parent<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("parent", selector, Combinator::Parent)
 	}
 	// parents
-	pub fn parents<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn parents<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("parents", selector, Combinator::ParentAll)
 	}
 	// for `find` and `select_with_comb`
-	fn find_selector<'b>(&self, selector: &Selector) -> NodeList<'b> {
-		let mut result = NodeList::with_capacity(5);
+	fn find_selector<'b>(&self, selector: &Selector) -> Elements<'b> {
+		let mut result = Elements::with_capacity(5);
 		for p in &selector.process {
 			let QueryProcess { should_in, query } = p;
 			let first_query = &query[0];
-			let mut group: NodeList;
+			let mut group: Elements;
 			let mut start_rule_index: usize = 0;
 			if let Some(lookup) = should_in {
-				group = NodeList::with_capacity(5);
+				group = Elements::with_capacity(5);
 				// get finded
-				let finded = NodeList::select(self, first_query, Some(&Combinator::ChildrenAll));
+				let finded = Elements::select(self, first_query, Some(&Combinator::ChildrenAll));
 				if !finded.is_empty() {
-					let tops = NodeList::select(self, &lookup[0], None);
+					let tops = Elements::select(self, &lookup[0], None);
 					if !tops.is_empty() {
 						// remove the first
 						start_rule_index = 1;
 						// check if the previous node and the current node are siblings.
-						let mut prev_node: Option<&BoxDynNode> = None;
+						let mut prev_node: Option<&BoxDynElement> = None;
 						let mut is_find = false;
 						let first_comb = &first_query[0].2;
 						let lookup_comb = &first_comb.reverse();
 						for node in finded.get_ref() {
 							if prev_node.is_some()
-								&& NodeList::is_sibling(node, prev_node.expect("Has test is_some"))
+								&& Elements::is_sibling(node, prev_node.expect("Has test is_some"))
 							{
 								match first_comb {
 									Combinator::Next => {
@@ -529,7 +556,7 @@ impl<'a> NodeList<'a> {
 			let query = &query[start_rule_index..];
 			if !group.is_empty() && !query.is_empty() {
 				for rules in query {
-					group = NodeList::select(&group, &rules, None);
+					group = Elements::select(&group, &rules, None);
 					if group.is_empty() {
 						is_empty = true;
 						break;
@@ -543,7 +570,7 @@ impl<'a> NodeList<'a> {
 		result
 	}
 	// `find`
-	pub fn find<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn find<'b>(&self, selector: &str) -> Elements<'b> {
 		self.trigger_method("find", selector, |selector| self.find_selector(selector))
 	}
 	// filter_type_handle:
@@ -556,16 +583,16 @@ impl<'a> NodeList<'a> {
 		method: &str,
 		selector: &Selector,
 		filter_type: &FilterType,
-	) -> (NodeList<'b>, usize) {
+	) -> (Elements<'b>, usize) {
 		let groups_num = selector.process.len();
 		let nodes = self.get_ref();
 		let total = nodes.len();
-		let mut result = NodeList::with_capacity(total);
+		let mut result = Elements::with_capacity(total);
 		let mut matched_num = 0;
 		let is_not = *filter_type == FilterType::Not;
 		// loop for rules
 		fn loop_rules(
-			node_list: &mut NodeList,
+			node_list: &mut Elements,
 			query: &[Vec<SelectorSegment>],
 			method: &str,
 			comb: Combinator,
@@ -577,17 +604,17 @@ impl<'a> NodeList<'a> {
 			for rules in query.iter().rev() {
 				let first_rule = &rules[0];
 				for (index, rule) in rules.iter().enumerate() {
-					let find_list: NodeList;
+					let find_list: Elements;
 					if index == 0 {
-						find_list = NodeList::select_by_rule(&node_list, rule, Some(&comb)).unique();
+						find_list = Elements::select_by_rule(&node_list, rule, Some(&comb)).unique();
 					} else {
-						find_list = NodeList::select_by_rule(&node_list, rule, None);
+						find_list = Elements::select_by_rule(&node_list, rule, None);
 					}
 					if rule.0.in_cache {
 						// the node list is in cache
 						let total = find_list.length();
 						if total > 0 {
-							let mut last_list = NodeList::with_capacity(total);
+							let mut last_list = Elements::with_capacity(total);
 							let cur_comb = if index == 0 { comb } else { rule.2 };
 							// the last rule or the chain rule must match the node list
 							if !(last_must_match || cur_comb == Combinator::Chain) {
@@ -623,7 +650,7 @@ impl<'a> NodeList<'a> {
 			let mut ok_nums = 0;
 			'loop_group: for process in selector.process.iter() {
 				let QueryProcess { query, should_in } = process;
-				let mut node_list = NodeList::with_node(node);
+				let mut node_list = Elements::with_node(node);
 				let comb = loop_rules(&mut node_list, &query, method, Combinator::Chain, true);
 				// may has `should_in` for `find` function
 				if let Some(should_in) = should_in {
@@ -682,12 +709,12 @@ impl<'a> NodeList<'a> {
 	#[allow(clippy::unnecessary_wraps)]
 	fn filter_in_handle<'b>(
 		&self,
-		search: &NodeList,
+		search: &Elements,
 		filter_type: FilterType,
-	) -> (NodeList<'b>, usize) {
+	) -> (Elements<'b>, usize) {
 		let nodes = self.get_ref();
 		let total = nodes.len();
-		let mut result = NodeList::with_capacity(total);
+		let mut result = Elements::with_capacity(total);
 		let mut matched_num = 0;
 		match filter_type {
 			FilterType::Filter => {
@@ -727,7 +754,7 @@ impl<'a> NodeList<'a> {
 	}
 
 	// filter
-	pub fn filter<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn filter<'b>(&self, selector: &str) -> Elements<'b> {
 		const METHOD: &str = "filter";
 		self.trigger_method(METHOD, selector, |selector| {
 			self
@@ -737,11 +764,11 @@ impl<'a> NodeList<'a> {
 	}
 
 	// filter_by
-	pub fn filter_by<'b, F>(&self, handle: F) -> NodeList<'b>
+	pub fn filter_by<'b, F>(&self, handle: F) -> Elements<'b>
 	where
-		F: Fn(usize, &BoxDynNode) -> bool,
+		F: Fn(usize, &BoxDynElement) -> bool,
 	{
-		let mut result = NodeList::with_capacity(self.length());
+		let mut result = Elements::with_capacity(self.length());
 		for (index, node) in self.get_ref().iter().enumerate() {
 			if handle(index, node) {
 				result.push(node.cloned());
@@ -750,7 +777,7 @@ impl<'a> NodeList<'a> {
 		result
 	}
 	// filter in
-	pub fn filter_in<'b>(&self, search: &NodeList) -> NodeList<'b> {
+	pub fn filter_in<'b>(&self, search: &Elements) -> Elements<'b> {
 		self.filter_in_handle(search, FilterType::Filter).0
 	}
 	// is
@@ -763,7 +790,7 @@ impl<'a> NodeList<'a> {
 	// is by
 	pub fn is_by<F>(&self, handle: F) -> bool
 	where
-		F: Fn(usize, &BoxDynNode) -> bool,
+		F: Fn(usize, &BoxDynElement) -> bool,
 	{
 		let mut flag = false;
 		for (index, node) in self.get_ref().iter().enumerate() {
@@ -775,7 +802,7 @@ impl<'a> NodeList<'a> {
 		flag
 	}
 	// is in
-	pub fn is_in(&self, search: &NodeList) -> bool {
+	pub fn is_in(&self, search: &Elements) -> bool {
 		self.filter_in_handle(search, FilterType::Is).1 > 0
 	}
 	// is_all
@@ -791,7 +818,7 @@ impl<'a> NodeList<'a> {
 	// is_all_by
 	pub fn is_all_by<F>(&self, handle: F) -> bool
 	where
-		F: Fn(usize, &BoxDynNode) -> bool,
+		F: Fn(usize, &BoxDynElement) -> bool,
 	{
 		let mut flag = true;
 		for (index, node) in self.get_ref().iter().enumerate() {
@@ -803,12 +830,12 @@ impl<'a> NodeList<'a> {
 		flag
 	}
 	// is_all_in
-	pub fn is_all_in(&self, search: &NodeList) -> bool {
+	pub fn is_all_in(&self, search: &Elements) -> bool {
 		let count = self.filter_in_handle(search, FilterType::IsAll).1;
 		count > 0 && count == self.length()
 	}
 	// not
-	pub fn not<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn not<'b>(&self, selector: &str) -> Elements<'b> {
 		const METHOD: &str = "not";
 		self.trigger_method(METHOD, selector, |selector| {
 			self
@@ -817,11 +844,11 @@ impl<'a> NodeList<'a> {
 		})
 	}
 	// not by
-	pub fn not_by<'b, F>(&self, handle: F) -> NodeList<'b>
+	pub fn not_by<'b, F>(&self, handle: F) -> Elements<'b>
 	where
-		F: Fn(usize, &BoxDynNode) -> bool,
+		F: Fn(usize, &BoxDynElement) -> bool,
 	{
-		let mut result = NodeList::with_capacity(self.length());
+		let mut result = Elements::with_capacity(self.length());
 		for (index, node) in self.get_ref().iter().enumerate() {
 			if !handle(index, node) {
 				result.push(node.cloned());
@@ -830,14 +857,14 @@ impl<'a> NodeList<'a> {
 		result
 	}
 	// not in
-	pub fn not_in<'b>(&self, search: &NodeList) -> NodeList<'b> {
+	pub fn not_in<'b>(&self, search: &Elements) -> Elements<'b> {
 		self.filter_in_handle(search, FilterType::Not).0
 	}
 
 	// has
-	pub fn has<'b>(&self, selector: &str) -> NodeList<'b> {
+	pub fn has<'b>(&self, selector: &str) -> Elements<'b> {
 		const METHOD: &str = "has";
-		fn loop_handle(node: &BoxDynNode, selector: &Selector) -> bool {
+		fn loop_handle(node: &BoxDynElement, selector: &Selector) -> bool {
 			let childs = node.children();
 			if !childs.is_empty() {
 				let (_, count) = childs.filter_type_handle(METHOD, selector, &FilterType::Is);
@@ -858,8 +885,8 @@ impl<'a> NodeList<'a> {
 	}
 
 	// has_in
-	pub fn has_in<'b>(&self, search: &NodeList) -> NodeList<'b> {
-		fn loop_handle(node: &BoxDynNode, search: &NodeList) -> bool {
+	pub fn has_in<'b>(&self, search: &Elements) -> Elements<'b> {
+		fn loop_handle(node: &BoxDynElement, search: &Elements) -> bool {
 			let childs = node.children();
 			if !childs.is_empty() {
 				let (_, count) = childs.filter_in_handle(search, FilterType::Is);
@@ -878,23 +905,23 @@ impl<'a> NodeList<'a> {
 	}
 
 	// eq
-	pub fn eq<'b>(&self, index: usize) -> NodeList<'b> {
+	pub fn eq<'b>(&self, index: usize) -> Elements<'b> {
 		if let Some(node) = self.get(index) {
-			NodeList::with_node(node)
+			Elements::with_node(node)
 		} else {
-			NodeList::new()
+			Elements::new()
 		}
 	}
 
 	// slice
-	pub fn slice<'b>(&self, range: Range<usize>) -> NodeList<'b> {
+	pub fn slice<'b>(&self, range: Range<usize>) -> Elements<'b> {
 		let Range { start, end } = range;
 		let total = self.length();
 		if start >= total {
-			return NodeList::new();
+			return Elements::new();
 		}
 		let end = if end <= total { end } else { total };
-		let mut result = NodeList::with_capacity(end - start);
+		let mut result = Elements::with_capacity(end - start);
 		let nodes = self.get_ref();
 		for node in &nodes[start..end] {
 			result.push(node.cloned());
@@ -903,9 +930,9 @@ impl<'a> NodeList<'a> {
 	}
 
 	// unique the nodes
-	fn unique<'b>(&self) -> NodeList<'b> {
+	fn unique<'b>(&self) -> Elements<'b> {
 		let total = self.length();
-		let mut result = NodeList::with_capacity(total);
+		let mut result = Elements::with_capacity(total);
 		for node in self.get_ref() {
 			let is_exists = {
 				let mut flag = false;
@@ -925,7 +952,10 @@ impl<'a> NodeList<'a> {
 		result
 	}
 	// find a node and then remove it
-	fn find_out<'b>(node_list: &'b mut NodeList<'a>, item: &BoxDynNode) -> Option<BoxDynNode<'a>> {
+	fn find_out<'b>(
+		node_list: &'b mut Elements<'a>,
+		item: &BoxDynElement,
+	) -> Option<BoxDynElement<'a>> {
 		let mut find_index: Option<usize> = None;
 		for (index, node) in node_list.get_ref().iter().enumerate() {
 			if node.is(item) {
@@ -941,13 +971,13 @@ impl<'a> NodeList<'a> {
 	// select one rule
 	// the rule must not in cache
 	fn select_by_rule<'b>(
-		node_list: &NodeList<'b>,
+		node_list: &Elements<'b>,
 		rule_item: &SelectorSegment,
 		comb: Option<&Combinator>,
-	) -> NodeList<'b> {
+	) -> Elements<'b> {
 		let cur_comb = comb.unwrap_or(&rule_item.2);
 		let (rule, matched, ..) = rule_item;
-		let mut result = NodeList::with_capacity(5);
+		let mut result = Elements::with_capacity(5);
 		use Combinator::*;
 		match cur_comb {
 			ChildrenAll => {
@@ -959,7 +989,7 @@ impl<'a> NodeList<'a> {
 						// apply rule
 						let mut matched_childs = rule.apply(&childs, matched);
 						for child in childs.get_ref() {
-							let matched = NodeList::find_out(&mut matched_childs, child);
+							let matched = Elements::find_out(&mut matched_childs, child);
 							let is_matched = matched.is_some();
 							let sub_childs = child.children();
 							if !sub_childs.is_empty() {
@@ -970,8 +1000,8 @@ impl<'a> NodeList<'a> {
 										.push(matched.expect("Has test is_some"));
 								}
 								// search sub child
-								let cur = NodeList::with_node(child);
-								let sub_matched = NodeList::select_by_rule(&cur, rule_item, comb);
+								let cur = Elements::with_node(child);
+								let sub_matched = Elements::select_by_rule(&cur, rule_item, comb);
 								if !sub_matched.is_empty() {
 									result.get_mut_ref().extend(sub_matched);
 								}
@@ -997,7 +1027,7 @@ impl<'a> NodeList<'a> {
 			Parent => {
 				for node in node_list.get_ref() {
 					if let Some(parent) = &node.parent() {
-						let plist = NodeList::with_node(parent);
+						let plist = Elements::with_node(parent);
 						let matched = rule.apply(&plist, matched);
 						if !matched.is_empty() {
 							result.get_mut_ref().extend(matched);
@@ -1008,13 +1038,13 @@ impl<'a> NodeList<'a> {
 			ParentAll => {
 				for node in node_list.get_ref() {
 					if let Some(parent) = &node.parent() {
-						let plist = NodeList::with_node(parent);
+						let plist = Elements::with_node(parent);
 						let matched = rule.apply(&plist, matched);
 						if !matched.is_empty() {
 							result.get_mut_ref().extend(matched);
 						}
 						if parent.parent().is_some() {
-							let ancestors = NodeList::select_by_rule(&plist, rule_item, comb);
+							let ancestors = Elements::select_by_rule(&plist, rule_item, comb);
 							if !ancestors.is_empty() {
 								result.get_mut_ref().extend(ancestors);
 							}
@@ -1032,7 +1062,7 @@ impl<'a> NodeList<'a> {
 				}
 			}
 			Next => {
-				let mut nexts = NodeList::with_capacity(node_list.length());
+				let mut nexts = Elements::with_capacity(node_list.length());
 				for node in node_list.get_ref() {
 					if let Some(next) = node.next_element_sibling() {
 						nexts.push(next.cloned());
@@ -1049,7 +1079,7 @@ impl<'a> NodeList<'a> {
 				}
 			}
 			Prev => {
-				let mut prevs = NodeList::with_capacity(node_list.length());
+				let mut prevs = Elements::with_capacity(node_list.length());
 				for node in node_list.get_ref() {
 					if let Some(next) = node.previous_element_sibling() {
 						prevs.push(next.cloned());
@@ -1073,10 +1103,10 @@ impl<'a> NodeList<'a> {
 	}
 	// select node by rules
 	fn select<'b>(
-		node_list: &'b NodeList<'a>,
+		node_list: &'b Elements<'a>,
 		rules: &'b [SelectorSegment],
 		comb: Option<&Combinator>,
-	) -> NodeList<'a> {
+	) -> Elements<'a> {
 		let mut node_list = node_list.cloned();
 		for (index, rule_item) in rules.iter().enumerate() {
 			let (rule, matched, cur_comb) = rule_item;
@@ -1085,7 +1115,7 @@ impl<'a> NodeList<'a> {
 			} else {
 				cur_comb
 			};
-			let mut cur_result = NodeList::with_capacity(5);
+			let mut cur_result = Elements::with_capacity(5);
 			if rule.in_cache {
 				// in cache
 				let finded = rule.apply(&node_list, matched);
@@ -1098,7 +1128,7 @@ impl<'a> NodeList<'a> {
 					}
 				}
 			} else {
-				cur_result = NodeList::select_by_rule(&node_list, rule_item, None);
+				cur_result = Elements::select_by_rule(&node_list, rule_item, None);
 			}
 			node_list = cur_result.unique();
 			if node_list.is_empty() {
@@ -1108,8 +1138,8 @@ impl<'a> NodeList<'a> {
 		node_list.unique()
 	}
 	// cloned
-	pub fn cloned<'b>(&'a self) -> NodeList<'b> {
-		let mut result = NodeList::with_capacity(self.length());
+	pub fn cloned<'b>(&'a self) -> Elements<'b> {
+		let mut result = Elements::with_capacity(self.length());
 		for node in &self.nodes {
 			result.push(node.cloned());
 		}
@@ -1118,15 +1148,15 @@ impl<'a> NodeList<'a> {
 	// `has_node`
 	pub(crate) fn has_node<'b>(
 		&self,
-		node: &'b BoxDynNode,
+		node: &'b BoxDynElement,
 		comb: &Combinator,
 		lookup: Option<&'b [Vec<SelectorSegment>]>,
 	) -> bool {
-		let mut node_list = NodeList::with_node(node);
+		let mut node_list = Elements::with_node(node);
 		let mut comb = comb;
 		if let Some(lookup) = lookup {
 			for rules in lookup.iter().rev() {
-				let finded = NodeList::select(&node_list, rules, Some(comb));
+				let finded = Elements::select(&node_list, rules, Some(comb));
 				if node_list.is_empty() {
 					return false;
 				}
@@ -1193,11 +1223,11 @@ impl<'a> NodeList<'a> {
 		false
 	}
 	/// check if the node list contains some node
-	fn includes(&self, node: &BoxDynNode) -> bool {
+	fn includes(&self, node: &BoxDynElement) -> bool {
 		self.get_ref().iter().any(|n| node.is(n))
 	}
 	/// check if two nodes are siblings.
-	fn is_sibling(cur: &BoxDynNode, other: &BoxDynNode) -> bool {
+	fn is_sibling(cur: &BoxDynElement, other: &BoxDynElement) -> bool {
 		// just check if they have same parent.
 		if let Some(parent) = cur.parent() {
 			if let Some(other_parent) = other.parent() {
@@ -1382,7 +1412,7 @@ impl<'a> NodeList<'a> {
 		self
 	}
 	// `insert`
-	fn insert(&mut self, dest: &NodeList, position: &InsertPosition) -> &mut Self {
+	fn insert(&mut self, dest: &Elements, position: &InsertPosition) -> &mut Self {
 		for node in self.get_mut_ref() {
 			for inserted in dest.get_ref().iter().rev() {
 				node.insert_adjacent(position, inserted);
@@ -1391,57 +1421,57 @@ impl<'a> NodeList<'a> {
 		self
 	}
 	/// pub fn `append`
-	pub fn append(&mut self, node_list: &NodeList) -> &mut Self {
+	pub fn append(&mut self, node_list: &Elements) -> &mut Self {
 		self.insert(node_list, &InsertPosition::BeforeEnd);
 		self
 	}
 	/// pub fn `append_to`
-	pub fn append_to(&self, node_list: &mut NodeList) -> &Self {
+	pub fn append_to(&self, node_list: &mut Elements) -> &Self {
 		node_list.append(self);
 		self
 	}
 	/// pub fn `prepend`
-	pub fn prepend(&mut self, node_list: &NodeList) -> &mut Self {
+	pub fn prepend(&mut self, node_list: &Elements) -> &mut Self {
 		self.insert(node_list, &InsertPosition::AfterBegin);
 		self
 	}
 	/// pub fn `prepend_to`
-	pub fn prepend_to(&self, node_list: &mut NodeList) -> &Self {
+	pub fn prepend_to(&self, node_list: &mut Elements) -> &Self {
 		node_list.prepend(self);
 		self
 	}
 	/// pub fn `insert_before`
-	pub fn insert_before(&mut self, node_list: &NodeList) -> &mut Self {
+	pub fn insert_before(&mut self, node_list: &Elements) -> &mut Self {
 		self.insert(node_list, &InsertPosition::BeforeBegin);
 		self
 	}
 	/// pub fn `before`
-	pub fn before(&self, node_list: &mut NodeList) -> &Self {
+	pub fn before(&self, node_list: &mut Elements) -> &Self {
 		node_list.insert_before(self);
 		self
 	}
 	/// pub fn `insert_after`
-	pub fn insert_after(&mut self, node_list: &NodeList) -> &mut Self {
+	pub fn insert_after(&mut self, node_list: &Elements) -> &mut Self {
 		self.insert(node_list, &InsertPosition::AfterEnd);
 		self
 	}
 	/// pub fn `before`
-	pub fn after(&self, node_list: &mut NodeList) -> &Self {
+	pub fn after(&self, node_list: &mut Elements) -> &Self {
 		node_list.insert_after(self);
 		self
 	}
 }
 
-impl<'a> IntoIterator for NodeList<'a> {
-	type Item = BoxDynNode<'a>;
+impl<'a> IntoIterator for Elements<'a> {
+	type Item = BoxDynElement<'a>;
 	type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
 	fn into_iter(self) -> Self::IntoIter {
 		Box::new(self.nodes.into_iter())
 	}
 }
 
-impl<'a> From<Vec<BoxDynNode<'a>>> for NodeList<'a> {
-	fn from(nodes: Vec<BoxDynNode<'a>>) -> Self {
-		NodeList { nodes }
+impl<'a> From<Vec<BoxDynElement<'a>>> for Elements<'a> {
+	fn from(nodes: Vec<BoxDynElement<'a>>) -> Self {
+		Elements { nodes }
 	}
 }

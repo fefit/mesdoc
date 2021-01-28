@@ -1,4 +1,4 @@
-use crate::interface::NodeList;
+use crate::interface::Elements;
 use crate::selector::rule::RuleMatchedData;
 use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
 pub fn init(rules: &mut Vec<RuleItem>) {
@@ -7,9 +7,9 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		"{identity}",
 		100,
 		vec![("identity", 0)],
-		Box::new(|nodes: &NodeList, params: &RuleMatchedData| -> NodeList {
+		Box::new(|nodes: &Elements, params: &RuleMatchedData| -> Elements {
 			let name = Rule::param(&params, "identity").expect("The 'id' selector is not correct");
-			let mut result = NodeList::new();
+			let mut result = Elements::new();
 			for node in nodes.get_ref() {
 				if node.tag_name() == name {
 					result.push(node.cloned());
