@@ -10,7 +10,7 @@ pub type MaybeDoc = Option<Box<dyn IDocumentTrait>>;
 pub type BoxDynElement<'a> = Box<dyn IElementTrait + 'a>;
 pub type BoxDynNode<'a> = Box<dyn INodeTrait + 'a>;
 pub type BoxDynText<'a> = Box<dyn ITextTrait + 'a>;
-pub type BoxDynUnuse<'a> = Box<dyn IUnuseTrait + 'a>;
+pub type BoxDynUncareNode<'a> = Box<dyn IUncareNodeTrait + 'a>;
 #[derive(Debug)]
 pub enum IAttrValue {
 	Value(String, Option<char>),
@@ -70,14 +70,14 @@ impl InsertPosition {
 
 #[derive(Debug)]
 pub enum INodeType {
-	Comment,
-	Document,
-	Element,
-	Text,
-	HTMLDOCTYPE,
-	XMLCDATA,
-	AbstractRoot,
-	Other,
+	Element = 1,
+	Text = 3,
+	XMLCDATA = 4,
+	Comment = 8,
+	Document = 9,
+	HTMLDOCTYPE = 10,
+	DocumentFragement = 11,
+	Other = 14,
 }
 
 impl INodeType {
@@ -92,14 +92,33 @@ pub trait IDocumentTrait {
 		None
 	}
 }
+pub enum IEnumTyped<'a> {
+	Element(BoxDynElement<'a>),
+	Text(BoxDynText<'a>),
+	UncareNode(BoxDynUncareNode<'a>),
+}
+
+impl<'a> IEnumTyped<'a> {
+	pub fn into_element(self) -> Option<BoxDynElement<'a>> {
+		match self {
+			IEnumTyped::Element(node) => Some(node),
+			_ => None,
+		}
+	}
+	pub fn into_text(self) -> Option<BoxDynText<'a>> {
+		match self {
+			IEnumTyped::Text(node) => Some(node),
+			_ => None,
+		}
+	}
+}
+
 pub trait INodeTrait {
 	fn to_node(self: Box<Self>) -> Box<dyn Any>;
 	// clone a node
 	fn clone_node<'b>(&self) -> BoxDynNode<'b>;
 	// typed,whether element or text
-	fn typed<'b>(
-		self: Box<Self>,
-	) -> Result<BoxDynElement<'b>, Result<BoxDynText<'b>, BoxDynUnuse<'b>>>;
+	fn typed<'b>(self: Box<Self>) -> IEnumTyped<'b>;
 	// get node type
 	fn node_type(&self) -> INodeType;
 	// find parents
@@ -119,12 +138,77 @@ pub trait INodeTrait {
 }
 
 pub trait ITextTrait: INodeTrait {}
-pub trait IUnuseTrait: INodeTrait {}
+pub trait IUncareNodeTrait: INodeTrait {}
 #[derive(Default)]
 pub struct Texts<'a> {
 	nodes: Vec<BoxDynText<'a>>,
 }
 
+impl<'a> Texts<'a> {
+	pub fn with_capacity(cap: usize) -> Self {
+		Texts {
+			nodes: Vec::with_capacity(cap),
+		}
+	}
+	pub fn length(&self) -> usize {
+		self.nodes.len()
+	}
+	pub fn is_empty(&self) -> bool {
+		self.length() == 0
+	}
+	// get ref
+	pub fn get_ref(&self) -> &Vec<BoxDynText<'a>> {
+		&self.nodes
+	}
+	// get mut ref
+	pub fn get_mut_ref(&mut self) -> &mut Vec<BoxDynText<'a>> {
+		&mut self.nodes
+	}
+	// for each
+	pub fn for_each<F>(&mut self, handle: F) -> &mut Self
+	where
+		F: Fn(usize, &mut BoxDynText) -> bool,
+	{
+		for (index, node) in self.get_mut_ref().iter_mut().enumerate() {
+			if !handle(index, node) {
+				break;
+			}
+		}
+		self
+	}
+	// alias for `for_each`
+	pub fn each<F>(&mut self, handle: F) -> &mut Self
+	where
+		F: Fn(usize, &mut BoxDynText) -> bool,
+	{
+		self.for_each(handle)
+	}
+	// filter_by
+	pub fn filter_by<'b, F>(&self, handle: F) -> Texts<'b>
+	where
+		F: Fn(usize, &BoxDynText) -> bool,
+	{
+		let mut result: Texts = Texts::with_capacity(self.length());
+		for (index, node) in self.get_ref().iter().enumerate() {
+			if handle(index, node) {
+				result.get_mut_ref().push(
+					node
+						.clone_node()
+						.typed()
+						.into_text()
+						.expect("Text node must can use 'into_text'."),
+				);
+			}
+		}
+		result
+	}
+	// remove
+	pub fn remove(self) {
+		for mut node in self.into_iter() {
+			node.set_text("");
+		}
+	}
+}
 pub trait IElementTrait: INodeTrait {
 	fn is(&self, ele: &BoxDynElement) -> bool {
 		if let Some(uuid) = self.uuid() {
@@ -136,7 +220,7 @@ pub trait IElementTrait: INodeTrait {
 	}
 	fn cloned<'b>(&self) -> BoxDynElement<'b> {
 		let node = self.clone_node();
-		node.typed().ok().unwrap()
+		node.typed().into_element().unwrap()
 	}
 	// next sibling
 	fn next_element_sibling<'b>(&self) -> MaybeElement<'b> {
@@ -246,7 +330,7 @@ pub trait IElementTrait: INodeTrait {
 		for node in child_nodes.iter() {
 			if let INodeType::Element = node.node_type() {
 				let node = node.clone_node();
-				result.push(node.typed().ok().unwrap());
+				result.push(node.typed().into_element().unwrap());
 			}
 		}
 		result
@@ -284,7 +368,7 @@ pub trait IElementTrait: INodeTrait {
 	fn insert_adjacent(&mut self, position: &InsertPosition, node: &BoxDynElement);
 	fn remove_child(&mut self, node: BoxDynElement);
 	// texts
-	fn texts(&self, _limit: u32) -> Option<Texts> {
+	fn texts<'b>(&self, _limit_depth: u32) -> Option<Texts<'b>> {
 		None
 	}
 }
@@ -363,7 +447,7 @@ impl<'a> Elements<'a> {
 	}
 
 	// pub fn `for_each`
-	pub fn for_each<F>(&mut self, handle: F)
+	pub fn for_each<F>(&mut self, handle: F) -> &mut Self
 	where
 		F: Fn(usize, &mut BoxDynElement) -> bool,
 	{
@@ -372,13 +456,14 @@ impl<'a> Elements<'a> {
 				break;
 			}
 		}
+		self
 	}
 	// alias for `for_each`
-	pub fn each<F>(&mut self, handle: F)
+	pub fn each<F>(&mut self, handle: F) -> &mut Self
 	where
 		F: Fn(usize, &mut BoxDynElement) -> bool,
 	{
-		self.for_each(handle);
+		self.for_each(handle)
 	}
 	// pub fn `map`
 	pub fn map<F, T: Sized>(&self, handle: F) -> Vec<T>
@@ -1397,6 +1482,17 @@ impl<'a> Elements<'a> {
 		}
 		self
 	}
+	/// pub fn `texts`
+	pub fn texts<'b>(&self, limit_depth: u32) -> Texts<'b> {
+		let mut result = Texts::with_capacity(5);
+		for node in self.get_ref() {
+			if let Some(text_nodes) = node.texts(limit_depth) {
+				result.get_mut_ref().extend(text_nodes);
+			}
+		}
+		result
+	}
+
 	// -----------------DOM API--------------
 	/// pub fn `remove`
 	pub fn remove(self) {
@@ -1473,5 +1569,19 @@ impl<'a> IntoIterator for Elements<'a> {
 impl<'a> From<Vec<BoxDynElement<'a>>> for Elements<'a> {
 	fn from(nodes: Vec<BoxDynElement<'a>>) -> Self {
 		Elements { nodes }
+	}
+}
+
+impl<'a> IntoIterator for Texts<'a> {
+	type Item = BoxDynText<'a>;
+	type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
+	fn into_iter(self) -> Self::IntoIter {
+		Box::new(self.nodes.into_iter())
+	}
+}
+
+impl<'a> From<Vec<BoxDynText<'a>>> for Texts<'a> {
+	fn from(nodes: Vec<BoxDynText<'a>>) -> Self {
+		Texts { nodes }
 	}
 }
