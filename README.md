@@ -1,8 +1,8 @@
-# ntree
+# mesdoc
 
-A html node tree Query Selector API.
+A html document node tree operation API.
 
-一个 html 节点树查询接口 API，通过实现该接口可以让节点获得操作 html 结构的能力。
+一个 html 文档树操作接口 API，通过实现该接口可以让节点获得操作 html 文档的各种接口方法。
 
 ## 接口
 
