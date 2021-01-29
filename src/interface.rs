@@ -91,6 +91,11 @@ pub trait IDocumentTrait {
 	fn onerror(&self) -> Option<Rc<IErrorHandle>> {
 		None
 	}
+	fn trigger_error(&self, error: Box<dyn Error>) {
+		if let Some(handle) = &self.onerror() {
+			handle(error);
+		}
+	}
 }
 pub enum IEnumTyped<'a> {
 	Element(BoxDynElement<'a>),
@@ -137,7 +142,9 @@ pub trait INodeTrait {
 	fn set_html(&mut self, content: &str);
 }
 
-pub trait ITextTrait: INodeTrait {}
+pub trait ITextTrait: INodeTrait {
+	fn remove(self: Box<Self>);
+}
 pub trait IUncareNodeTrait: INodeTrait {}
 #[derive(Default)]
 pub struct Texts<'a> {
@@ -204,8 +211,8 @@ impl<'a> Texts<'a> {
 	}
 	// remove
 	pub fn remove(self) {
-		for mut node in self.into_iter() {
-			node.set_text("");
+		for node in self.into_iter() {
+			node.remove();
 		}
 	}
 }
@@ -412,12 +419,10 @@ impl<'a> Elements<'a> {
 				.expect("Use index 0 when length > 0")
 				.owner_document()
 			{
-				if let Some(error_handle) = &doc.onerror() {
-					error_handle(Box::new(IError::MethodOnInvalidSelector {
-						method: String::from(method),
-						error: format!("{}", s.err().expect("Err is some")),
-					}));
-				}
+				doc.trigger_error(Box::new(IError::MethodOnInvalidSelector {
+					method: String::from(method),
+					error: format!("{}", s.err().expect("Err is some")),
+				}));
 			}
 		}
 		Default::default()
