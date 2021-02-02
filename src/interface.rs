@@ -172,9 +172,9 @@ impl<'a> Texts<'a> {
 		&mut self.nodes
 	}
 	// for each
-	pub fn for_each<F>(&mut self, handle: F) -> &mut Self
+	pub fn for_each<F>(&mut self, mut handle: F) -> &mut Self
 	where
-		F: Fn(usize, &mut BoxDynText) -> bool,
+		F: FnMut(usize, &mut BoxDynText) -> bool,
 	{
 		for (index, node) in self.get_mut_ref().iter_mut().enumerate() {
 			if !handle(index, node) {
@@ -186,7 +186,7 @@ impl<'a> Texts<'a> {
 	// alias for `for_each`
 	pub fn each<F>(&mut self, handle: F) -> &mut Self
 	where
-		F: Fn(usize, &mut BoxDynText) -> bool,
+		F: FnMut(usize, &mut BoxDynText) -> bool,
 	{
 		self.for_each(handle)
 	}
@@ -452,9 +452,9 @@ impl<'a> Elements<'a> {
 	}
 
 	// pub fn `for_each`
-	pub fn for_each<F>(&mut self, handle: F) -> &mut Self
+	pub fn for_each<F>(&mut self, mut handle: F) -> &mut Self
 	where
-		F: Fn(usize, &mut BoxDynElement) -> bool,
+		F: FnMut(usize, &mut BoxDynElement) -> bool,
 	{
 		for (index, node) in self.get_mut_ref().iter_mut().enumerate() {
 			if !handle(index, node) {
@@ -466,7 +466,7 @@ impl<'a> Elements<'a> {
 	// alias for `for_each`
 	pub fn each<F>(&mut self, handle: F) -> &mut Self
 	where
-		F: Fn(usize, &mut BoxDynElement) -> bool,
+		F: FnMut(usize, &mut BoxDynElement) -> bool,
 	{
 		self.for_each(handle)
 	}
@@ -796,7 +796,6 @@ impl<'a> Elements<'a> {
 		(result, matched_num)
 	}
 	// filter in type
-	#[allow(clippy::unnecessary_wraps)]
 	fn filter_in_handle<'b>(
 		&self,
 		search: &Elements,
@@ -1522,42 +1521,42 @@ impl<'a> Elements<'a> {
 		self
 	}
 	/// pub fn `append`
-	pub fn append(&mut self, node_list: &Elements) -> &mut Self {
+	pub fn append(&mut self, node_list: &mut Elements) -> &mut Self {
 		self.insert(node_list, &InsertPosition::BeforeEnd);
 		self
 	}
 	/// pub fn `append_to`
-	pub fn append_to(&self, node_list: &mut Elements) -> &Self {
+	pub fn append_to(&mut self, node_list: &mut Elements) -> &mut Self {
 		node_list.append(self);
 		self
 	}
 	/// pub fn `prepend`
-	pub fn prepend(&mut self, node_list: &Elements) -> &mut Self {
+	pub fn prepend(&mut self, node_list: &mut Elements) -> &mut Self {
 		self.insert(node_list, &InsertPosition::AfterBegin);
 		self
 	}
 	/// pub fn `prepend_to`
-	pub fn prepend_to(&self, node_list: &mut Elements) -> &Self {
+	pub fn prepend_to(&mut self, node_list: &mut Elements) -> &mut Self {
 		node_list.prepend(self);
 		self
 	}
 	/// pub fn `insert_before`
-	pub fn insert_before(&mut self, node_list: &Elements) -> &mut Self {
+	pub fn insert_before(&mut self, node_list: &mut Elements) -> &mut Self {
 		self.insert(node_list, &InsertPosition::BeforeBegin);
 		self
 	}
 	/// pub fn `before`
-	pub fn before(&self, node_list: &mut Elements) -> &Self {
+	pub fn before(&mut self, node_list: &mut Elements) -> &mut Self {
 		node_list.insert_before(self);
 		self
 	}
 	/// pub fn `insert_after`
-	pub fn insert_after(&mut self, node_list: &Elements) -> &mut Self {
+	pub fn insert_after(&mut self, node_list: &mut Elements) -> &mut Self {
 		self.insert(node_list, &InsertPosition::AfterEnd);
 		self
 	}
 	/// pub fn `before`
-	pub fn after(&self, node_list: &mut Elements) -> &Self {
+	pub fn after(&mut self, node_list: &mut Elements) -> &mut Self {
 		node_list.insert_after(self);
 		self
 	}
