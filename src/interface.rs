@@ -414,20 +414,23 @@ impl<'a> Elements<'a> {
 			if let Ok(mut s) = s {
 				return handle(&mut s);
 			}
-			if let Some(doc) = &self
-				.get(0)
-				.expect("Use index 0 when length > 0")
-				.owner_document()
-			{
-				doc.trigger_error(Box::new(IError::MethodOnInvalidSelector {
-					method: String::from(method),
-					error: format!("{}", s.err().expect("Err is some")),
-				}));
-			}
+			self.trigger_method_throw_error(method, Box::new(s.unwrap_err()));
 		}
 		Default::default()
 	}
 
+	pub(crate) fn trigger_method_throw_error(&self, method: &str, error: Box<dyn Error>) {
+		if let Some(doc) = &self
+			.get(0)
+			.expect("Use index 0 when length > 0")
+			.owner_document()
+		{
+			doc.trigger_error(Box::new(IError::MethodOnInvalidSelector {
+				method: String::from(method),
+				error: error.to_string(),
+			}));
+		}
+	}
 	// new
 	pub fn new() -> Self {
 		Default::default()
@@ -535,13 +538,84 @@ impl<'a> Elements<'a> {
 			let selector = Selector::from_segment(segment);
 			return self.find_selector(&selector);
 		}
-		// let mut selector: Selector = selector.into();
-		// selector.head_combinator(comb);
-		// self.find_selector(&selector)
 		self.trigger_method(method, selector, |selector| {
 			selector.head_combinator(comb);
 			self.find_selector(&selector)
 		})
+	}
+	// for all combinator until selectors
+	fn select_with_comb_until<'b>(
+		&self,
+		method: &str,
+		selector: &str,
+		filter: &str,
+		contains: bool,
+		comb: Combinator,
+	) -> Elements<'b> {
+		let selector = selector.parse::<Selector>();
+		if let Ok(selector) = &selector {
+			let segment = Selector::make_comb_all(comb);
+			let next_selector = Selector::from_segment(segment);
+			let mut result = Elements::with_capacity(5);
+			let (next_ok, filter) = if !filter.is_empty() {
+				let filter = filter.parse::<Selector>();
+				if let Ok(filter) = filter {
+					(true, Some(filter))
+				} else {
+					self.trigger_method_throw_error(method, Box::new(filter.unwrap_err()));
+					(false, None)
+				}
+			} else {
+				(true, None)
+			};
+			if next_ok {
+				// has filter
+				for node in self.get_ref() {
+					let mut cur_ele = Elements::with_node(node);
+					loop {
+						// find the next element
+						cur_ele = cur_ele.find_selector(&next_selector);
+						if !cur_ele.is_empty() {
+							let meet_until = cur_ele
+								.filter_type_handle(method, &selector, &FilterType::Is)
+								.1 > 0;
+							// meet the until element, and not contains, stop before check element
+							if meet_until && !contains {
+								break;
+							}
+							// check if cur_ele filter
+							let should_add = if let Some(filter) = &filter {
+								// filter true
+								cur_ele
+									.filter_type_handle(method, filter, &FilterType::Is)
+									.1 > 0
+							} else {
+								// no need filter, just add
+								true
+							};
+							if should_add {
+								result.push(
+									cur_ele
+										.get(0)
+										.expect("Elements get 0 must have when length > 0")
+										.cloned(),
+								);
+							}
+							// find the until, stop the loop at the end whenever contains or not
+							if meet_until {
+								break;
+							}
+						} else {
+							break;
+						}
+					}
+				}
+				return result;
+			}
+		} else {
+			self.trigger_method_throw_error(method, Box::new(selector.unwrap_err()));
+		}
+		Elements::new()
 	}
 	// prev
 	pub fn prev<'b>(&self, selector: &str) -> Elements<'b> {
@@ -551,6 +625,10 @@ impl<'a> Elements<'a> {
 	pub fn prev_all<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("prev_all", selector, Combinator::PrevAll)
 	}
+	// prev_until
+	pub fn prev_until<'b>(&self, selector: &str, filter: &str, contains: bool) -> Elements<'b> {
+		self.select_with_comb_until("prev_until", selector, filter, contains, Combinator::Prev)
+	}
 	// next
 	pub fn next<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("next", selector, Combinator::Next)
@@ -558,6 +636,10 @@ impl<'a> Elements<'a> {
 	// next_all
 	pub fn next_all<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("next_all", selector, Combinator::NextAll)
+	}
+	// next_until
+	pub fn next_until<'b>(&self, selector: &str, filter: &str, contains: bool) -> Elements<'b> {
+		self.select_with_comb_until("next_until", selector, filter, contains, Combinator::Next)
 	}
 	// siblings
 	pub fn siblings<'b>(&self, selector: &str) -> Elements<'b> {
@@ -574,6 +656,54 @@ impl<'a> Elements<'a> {
 	// parents
 	pub fn parents<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("parents", selector, Combinator::ParentAll)
+	}
+	// parents_until
+	pub fn parents_until<'b>(&self, selector: &str, filter: &str, contains: bool) -> Elements<'b> {
+		self.select_with_comb_until(
+			"parents_until",
+			selector,
+			filter,
+			contains,
+			Combinator::Parent,
+		)
+	}
+	// closest
+	pub fn closest<'b>(&self, selector: &str) -> Elements<'b> {
+		const METHOD: &str = "closest";
+		let selector = selector.parse::<Selector>();
+		if let Ok(selector) = selector {
+			let segment = Selector::make_comb_all(Combinator::Parent);
+			let lookup_selector = Selector::from_segment(segment);
+			let mut result = Elements::with_capacity(self.length());
+			for node in self.get_ref() {
+				let mut cur_ele = Elements::with_node(node);
+				loop {
+					// find begin with self, then parents
+					if cur_ele
+						.filter_type_handle(METHOD, &selector, &FilterType::Is)
+						.1 > 0
+					{
+						result.get_mut_ref().push(
+							cur_ele
+								.get(0)
+								.expect("Elements get 0 must have when length > 0")
+								.cloned(),
+						);
+						break;
+					}
+					// set the cur_ele as parent
+					cur_ele = cur_ele.find_selector(&lookup_selector);
+					// break if parent is none
+					if cur_ele.is_empty() {
+						break;
+					}
+				}
+			}
+			result
+		} else {
+			self.trigger_method_throw_error(METHOD, Box::new(selector.unwrap_err()));
+			Elements::new()
+		}
 	}
 	// for `find` and `select_with_comb`
 	fn find_selector<'b>(&self, selector: &Selector) -> Elements<'b> {
