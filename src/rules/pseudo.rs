@@ -22,9 +22,9 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|nodes: &Elements, _| -> Elements {
+		Box::new(|eles: &Elements, _| -> Elements {
 			let mut result = Elements::with_capacity(DEF_NODES_LEN);
-			for node in nodes.get_ref() {
+			for node in eles.get_ref() {
 				let child_nodes = node.child_nodes();
 				if child_nodes.is_empty() {
 					result.push(node.cloned());
@@ -58,14 +58,14 @@ fn make_first_or_last_child(selector: &'static str, is_first: bool) -> RuleDefIt
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |nodes: &Elements, _: &RuleMatchedData| -> Elements {
+		Box::new(move |eles: &Elements, _: &RuleMatchedData| -> Elements {
 			let mut result = Elements::with_capacity(DEF_NODES_LEN);
 			let get_index = if is_first {
 				|_: usize| 0
 			} else {
 				|total: usize| total - 1
 			};
-			for node in nodes.get_ref() {
+			for node in eles.get_ref() {
 				if let Some(parent) = node.parent() {
 					let childs = parent.children();
 					let index = get_index(childs.length());
@@ -101,18 +101,18 @@ struct SiblingsNodeData<'a> {
 	parent: Option<BoxDynElement<'a>>,
 }
 
-fn group_siblings_then_done<T, F>(nodes: &Elements, allow_indexs_fn: T, mut cb: F)
+fn group_siblings_then_done<T, F>(eles: &Elements, allow_indexs_fn: T, mut cb: F)
 where
 	T: Fn(usize) -> Option<Vec<usize>>,
 	F: FnMut(&mut SiblingsNodeData),
 {
-	let total = nodes.length();
+	let total = eles.length();
 	let mut data = SiblingsNodeData {
 		siblings: Vec::with_capacity(total),
 		allow_indexs: None,
 		parent: None,
 	};
-	for (i, node) in nodes.get_ref().iter().enumerate() {
+	for (i, node) in eles.get_ref().iter().enumerate() {
 		if let Some(parent) = node.parent() {
 			let mut in_next_group = false;
 			let mut is_first = false;
@@ -156,14 +156,68 @@ fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem 
 		 -> Vec<BoxDynElement> {
 			// do with the siblings
 			let child_nodes = childs.get_ref();
-			let mut finded: Vec<BoxDynElement> = Vec::with_capacity(5);
-			for &index in allow_indexs {
-				if let Some(child) = child_nodes.get(index) {
+			let mut finded: Vec<BoxDynElement> = Vec::with_capacity(allow_indexs.len());
+			// optimize if loop all the childs
+			if siblings.len() == child_nodes.len() {
+				for &index in allow_indexs {
+					finded.push(
+						child_nodes
+							.get(index)
+							.expect("Allow indexs must less than total length")
+							.cloned(),
+					);
+				}
+			} else {
+				for &index in allow_indexs {
+					if let Some(child) = child_nodes.get(index) {
+						let mut find_index: Option<usize> = None;
+						for (idx, node) in siblings.iter().enumerate() {
+							if node.is(child) {
+								finded.push(node.cloned());
+								find_index = Some(idx);
+								break;
+							}
+						}
+						if let Some(find_index) = find_index {
+							// the last one node
+							if siblings.len() == 1 {
+								break;
+							}
+							// remove from the siblings queue
+							siblings.remove(find_index);
+						}
+					}
+				}
+			}
+			finded
+		}
+	} else {
+		|siblings: &mut Vec<BoxDynElement>, allow_indexs: &[usize], childs: &Elements| {
+			// do with the siblings
+			let child_nodes = childs.get_ref();
+			let child_len = child_nodes.len();
+			let mut finded: Vec<BoxDynElement> = Vec::with_capacity(allow_indexs.len());
+			// optimize when loop all the childrens
+			if child_len == siblings.len() {
+				for &index in allow_indexs.iter().rev() {
+					finded.push(
+						child_nodes
+							.get(child_len - index - 1)
+							.expect("Allow indexs must less than total length")
+							.cloned(),
+					);
+				}
+			} else {
+				for (i, child) in child_nodes.iter().rev().enumerate() {
+					if allow_indexs.binary_search(&i).is_err() {
+						continue;
+					}
 					let mut find_index: Option<usize> = None;
-					for (idx, node) in siblings.iter().enumerate() {
+					let total = siblings.len();
+					for (idx, node) in siblings.iter().rev().enumerate() {
 						if node.is(child) {
 							finded.push(node.cloned());
-							find_index = Some(idx);
+							find_index = Some(total - idx - 1);
 							break;
 						}
 					}
@@ -176,37 +230,8 @@ fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem 
 						siblings.remove(find_index);
 					}
 				}
+				finded.reverse();
 			}
-			finded
-		}
-	} else {
-		|siblings: &mut Vec<BoxDynElement>, allow_indexs: &[usize], childs: &Elements| {
-			// do with the siblings
-			let child_nodes = childs.get_ref();
-			let mut finded: Vec<BoxDynElement> = Vec::with_capacity(5);
-			for (i, child) in child_nodes.iter().rev().enumerate() {
-				if !allow_indexs.contains(&i) {
-					continue;
-				}
-				let mut find_index: Option<usize> = None;
-				let total = siblings.len();
-				for (idx, node) in siblings.iter().rev().enumerate() {
-					if node.is(child) {
-						finded.push(node.cloned());
-						find_index = Some(total - idx - 1);
-						break;
-					}
-				}
-				if let Some(find_index) = find_index {
-					// the last one node
-					if siblings.len() == 1 {
-						break;
-					}
-					// remove from the siblings queue
-					siblings.remove(find_index);
-				}
-			}
-			finded.reverse();
 			finded
 		}
 	};
@@ -217,12 +242,12 @@ fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem 
 		PRIORITY,
 		vec![("nth", 0)],
 		Box::new(
-			move |nodes: &Elements, params: &RuleMatchedData| -> Elements {
+			move |eles: &Elements, params: &RuleMatchedData| -> Elements {
 				let n = Rule::param(&params, ("nth", 0, "n"));
 				let index = Rule::param(&params, ("nth", 0, "index"));
 				let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
 				group_siblings_then_done(
-					nodes,
+					eles,
 					|total: usize| Some(Nth::get_allowed_indexs(n, index, total)),
 					|data: &mut SiblingsNodeData| {
 						let allow_indexs = data.allow_indexs.as_ref().expect("allow indexs must set");
@@ -268,10 +293,10 @@ fn make_first_or_last_of_type(selector: &'static str, is_first: bool) -> RuleDef
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |nodes: &Elements, _: &RuleMatchedData| -> Elements {
+		Box::new(move |eles: &Elements, _: &RuleMatchedData| -> Elements {
 			let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
 			group_siblings_then_done(
-				nodes,
+				eles,
 				|_| None,
 				|data: &mut SiblingsNodeData| {
 					let childs = data
@@ -403,12 +428,12 @@ fn make_asc_or_desc_nth_of_type(selector: &'static str, asc: bool) -> RuleDefIte
 		PRIORITY,
 		vec![("nth", 0)],
 		Box::new(
-			move |nodes: &Elements, params: &RuleMatchedData| -> Elements {
+			move |eles: &Elements, params: &RuleMatchedData| -> Elements {
 				let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
 				let n = Rule::param(&params, ("nth", 0, "n"));
 				let index = Rule::param(&params, ("nth", 0, "index"));
 				group_siblings_then_done(
-					nodes,
+					eles,
 					|total: usize| Some(Nth::get_allowed_indexs(n, index, total)),
 					|data: &mut SiblingsNodeData| {
 						let allow_indexs = data.allow_indexs.as_ref().expect("allow indexs must set");
@@ -486,9 +511,9 @@ fn pseudo_only_child(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |nodes: &Elements, _| -> Elements {
+		Box::new(move |eles: &Elements, _| -> Elements {
 			let mut result = Elements::with_capacity(DEF_NODES_LEN);
-			for node in nodes.get_ref() {
+			for node in eles.get_ref() {
 				if let Some(parent) = node.parent() {
 					let childs = parent.children();
 					if childs.length() == 1 {
@@ -511,10 +536,10 @@ fn pseudo_only_of_type(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |nodes: &Elements, _| -> Elements {
+		Box::new(move |eles: &Elements, _| -> Elements {
 			let mut result = Elements::with_capacity(DEF_NODES_LEN);
 			group_siblings_then_done(
-				nodes,
+				eles,
 				|_| None,
 				|data: &mut SiblingsNodeData| {
 					let childs = data
@@ -568,9 +593,9 @@ fn pseudo_not(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![("selector", 0)],
-		Box::new(|nodes: &Elements, params: &RuleMatchedData| -> Elements {
+		Box::new(|eles: &Elements, params: &RuleMatchedData| -> Elements {
 			let selector = Rule::param(&params, "selector").expect("selector param must have.");
-			nodes.not(selector)
+			eles.not(selector)
 		}),
 	);
 	rules.push(rule.into());
