@@ -143,7 +143,12 @@ pub trait INodeTrait {
 }
 
 pub trait ITextTrait: INodeTrait {
+	// remove the node
 	fn remove(self: Box<Self>);
+	// append text at the end
+	fn append_text(&mut self, content: &str);
+	// prepend text at the start
+	fn prepend_text(&mut self, content: &str);
 }
 pub trait IUncareNodeTrait: INodeTrait {}
 #[derive(Default)]
@@ -377,6 +382,14 @@ pub trait IElementTrait: INodeTrait {
 	// texts
 	fn texts<'b>(&self, _limit_depth: u32) -> Option<Texts<'b>> {
 		None
+	}
+	// special for content tag, 'style','script','title','textarea'
+	#[allow(clippy::boxed_local)]
+	fn into_text<'b>(self: Box<Self>) -> Result<BoxDynText<'b>, Box<dyn Error>> {
+		Err(Box::new(IError::InvalidTraitMethodCall {
+			method: "into_text".into(),
+			message: "The into_text method is not implemented.".into(),
+		}))
 	}
 }
 
@@ -812,7 +825,7 @@ impl<'a> Elements<'a> {
 		let is_not = *filter_type == FilterType::Not;
 		// loop for rules
 		fn loop_rules(
-			node_list: &mut Elements,
+			elements: &mut Elements,
 			query: &[Vec<SelectorSegment>],
 			method: &str,
 			comb: Combinator,
@@ -826,9 +839,9 @@ impl<'a> Elements<'a> {
 				for (index, rule) in rules.iter().enumerate() {
 					let find_list: Elements;
 					if index == 0 {
-						find_list = Elements::select_by_rule(&node_list, rule, Some(&comb)).unique();
+						find_list = Elements::select_by_rule(&elements, rule, Some(&comb)).unique();
 					} else {
-						find_list = Elements::select_by_rule(&node_list, rule, None);
+						find_list = Elements::select_by_rule(&elements, rule, None);
 					}
 					if rule.0.in_cache {
 						// the node list is in cache
@@ -839,23 +852,23 @@ impl<'a> Elements<'a> {
 							// the last rule or the chain rule must match the node list
 							if !(last_must_match || cur_comb == Combinator::Chain) {
 								// otherwise change the node list to the real should matched node list
-								*node_list = node_list.select_with_comb(method, "", cur_comb);
-								// test the find_list if in the real node_list,so change the comb to chain
+								*elements = elements.select_with_comb(method, "", cur_comb);
+								// test the find_list if in the real elements,so change the comb to chain
 								comb = Combinator::Chain;
 							}
 							for node in find_list.get_ref() {
-								if node_list.has_node(node, &comb, None) {
+								if elements.has_node(node, &comb, None) {
 									last_list.push(node.cloned());
 								}
 							}
-							*node_list = last_list;
+							*elements = last_list;
 						} else {
-							*node_list = find_list;
+							*elements = find_list;
 						}
 					} else {
-						*node_list = find_list;
+						*elements = find_list;
 					}
-					if node_list.is_empty() {
+					if elements.is_empty() {
 						break;
 					}
 				}
@@ -870,15 +883,15 @@ impl<'a> Elements<'a> {
 			let mut ok_nums = 0;
 			'loop_group: for process in selector.process.iter() {
 				let QueryProcess { query, should_in } = process;
-				let mut node_list = Elements::with_node(node);
-				let comb = loop_rules(&mut node_list, &query, method, Combinator::Chain, true);
+				let mut elements = Elements::with_node(node);
+				let comb = loop_rules(&mut elements, &query, method, Combinator::Chain, true);
 				// may has `should_in` for `find` function
 				if let Some(should_in) = should_in {
-					if !node_list.is_empty() {
-						loop_rules(&mut node_list, &should_in, method, comb, false);
+					if !elements.is_empty() {
+						loop_rules(&mut elements, &should_in, method, comb, false);
 					}
 				}
-				if node_list.is_empty() {
+				if elements.is_empty() {
 					if is_not {
 						// if is `not`, then the node is not in cur group selector.
 						ok_nums += 1;
@@ -1172,25 +1185,25 @@ impl<'a> Elements<'a> {
 	}
 	// find a node and then remove it
 	fn find_out<'b>(
-		node_list: &'b mut Elements<'a>,
+		elements: &'b mut Elements<'a>,
 		item: &BoxDynElement,
 	) -> Option<BoxDynElement<'a>> {
 		let mut find_index: Option<usize> = None;
-		for (index, node) in node_list.get_ref().iter().enumerate() {
+		for (index, node) in elements.get_ref().iter().enumerate() {
 			if node.is(item) {
 				find_index = Some(index);
 				break;
 			}
 		}
 		if let Some(index) = find_index {
-			return Some(node_list.get_mut_ref().remove(index));
+			return Some(elements.get_mut_ref().remove(index));
 		}
 		None
 	}
 	// select one rule
 	// the rule must not in cache
 	fn select_by_rule<'b>(
-		node_list: &Elements<'b>,
+		elements: &Elements<'b>,
 		rule_item: &SelectorSegment,
 		comb: Option<&Combinator>,
 	) -> Elements<'b> {
@@ -1201,7 +1214,7 @@ impl<'a> Elements<'a> {
 		match cur_comb {
 			ChildrenAll => {
 				// depth first search, keep the appear order
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					// get children
 					let childs = node.children();
 					if !childs.is_empty() {
@@ -1235,7 +1248,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			Children => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					let childs = node.children();
 					let match_childs = rule.apply(&childs, matched);
 					if !match_childs.is_empty() {
@@ -1244,7 +1257,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			Parent => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					if let Some(parent) = &node.parent() {
 						let plist = Elements::with_node(parent);
 						let matched = rule.apply(&plist, matched);
@@ -1255,7 +1268,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			ParentAll => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					if let Some(parent) = &node.parent() {
 						let plist = Elements::with_node(parent);
 						let matched = rule.apply(&plist, matched);
@@ -1272,7 +1285,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			NextAll => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					let nexts = node.next_element_siblings();
 					let matched_nexts = rule.apply(&nexts, matched);
 					if !matched_nexts.is_empty() {
@@ -1281,8 +1294,8 @@ impl<'a> Elements<'a> {
 				}
 			}
 			Next => {
-				let mut nexts = Elements::with_capacity(node_list.length());
-				for node in node_list.get_ref() {
+				let mut nexts = Elements::with_capacity(elements.length());
+				for node in elements.get_ref() {
 					if let Some(next) = node.next_element_sibling() {
 						nexts.push(next.cloned());
 					}
@@ -1292,14 +1305,14 @@ impl<'a> Elements<'a> {
 				}
 			}
 			PrevAll => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					let nexts = node.previous_element_siblings();
 					result.get_mut_ref().extend(rule.apply(&nexts, matched));
 				}
 			}
 			Prev => {
-				let mut prevs = Elements::with_capacity(node_list.length());
-				for node in node_list.get_ref() {
+				let mut prevs = Elements::with_capacity(elements.length());
+				for node in elements.get_ref() {
 					if let Some(next) = node.previous_element_sibling() {
 						prevs.push(next.cloned());
 					}
@@ -1309,24 +1322,24 @@ impl<'a> Elements<'a> {
 				}
 			}
 			Siblings => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					let siblings = node.siblings();
 					result.get_mut_ref().extend(rule.apply(&siblings, matched));
 				}
 			}
 			Chain => {
-				result = rule.apply(&node_list, matched);
+				result = rule.apply(&elements, matched);
 			}
 		};
 		result
 	}
 	// select node by rules
 	fn select<'b>(
-		node_list: &'b Elements<'a>,
+		elements: &'b Elements<'a>,
 		rules: &'b [SelectorSegment],
 		comb: Option<&Combinator>,
 	) -> Elements<'a> {
-		let mut node_list = node_list.cloned();
+		let mut elements = elements.cloned();
 		for (index, rule_item) in rules.iter().enumerate() {
 			let (rule, matched, cur_comb) = rule_item;
 			let comb = if index == 0 {
@@ -1337,24 +1350,24 @@ impl<'a> Elements<'a> {
 			let mut cur_result = Elements::with_capacity(5);
 			if rule.in_cache {
 				// in cache
-				let finded = rule.apply(&node_list, matched);
+				let finded = rule.apply(&elements, matched);
 				if !finded.is_empty() {
 					let lookup_comb = comb.reverse();
 					for node in finded.get_ref() {
-						if node_list.has_node(node, &lookup_comb, None) {
+						if elements.has_node(node, &lookup_comb, None) {
 							cur_result.push(node.cloned());
 						}
 					}
 				}
 			} else {
-				cur_result = Elements::select_by_rule(&node_list, rule_item, None);
+				cur_result = Elements::select_by_rule(&elements, rule_item, None);
 			}
-			node_list = cur_result.unique();
-			if node_list.is_empty() {
+			elements = cur_result.unique();
+			if elements.is_empty() {
 				break;
 			}
 		}
-		node_list.unique()
+		elements.unique()
 	}
 	// cloned
 	pub fn cloned<'b>(&'a self) -> Elements<'b> {
@@ -1371,22 +1384,22 @@ impl<'a> Elements<'a> {
 		comb: &Combinator,
 		lookup: Option<&'b [Vec<SelectorSegment>]>,
 	) -> bool {
-		let mut node_list = Elements::with_node(node);
+		let mut elements = Elements::with_node(node);
 		let mut comb = comb;
 		if let Some(lookup) = lookup {
 			for rules in lookup.iter().rev() {
-				let finded = Elements::select(&node_list, rules, Some(comb));
-				if node_list.is_empty() {
+				let finded = Elements::select(&elements, rules, Some(comb));
+				if elements.is_empty() {
 					return false;
 				}
 				comb = &rules[0].2;
-				node_list = finded;
+				elements = finded;
 			}
 		}
 		use Combinator::*;
 		match comb {
 			Parent => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					if let Some(parent) = &node.parent() {
 						if self.includes(&parent) {
 							return true;
@@ -1395,7 +1408,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			ParentAll => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					if let Some(parent) = &node.parent() {
 						if self.includes(&parent) {
 							return true;
@@ -1412,7 +1425,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			Prev => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					if let Some(prev) = &node.previous_element_sibling() {
 						if self.includes(&prev) {
 							return true;
@@ -1421,7 +1434,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			PrevAll => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					let prevs = node.previous_element_siblings();
 					for prev in prevs.get_ref() {
 						if self.includes(prev) {
@@ -1431,7 +1444,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			Chain => {
-				for node in node_list.get_ref() {
+				for node in elements.get_ref() {
 					if self.includes(node) {
 						return true;
 					}
@@ -1651,43 +1664,45 @@ impl<'a> Elements<'a> {
 		self
 	}
 	/// pub fn `append`
-	pub fn append(&mut self, node_list: &mut Elements) -> &mut Self {
-		self.insert(node_list, &InsertPosition::BeforeEnd);
+	pub fn append(&mut self, elements: &mut Elements) -> &mut Self {
+		self.insert(elements, &InsertPosition::BeforeEnd);
 		self
 	}
 	/// pub fn `append_to`
-	pub fn append_to(&mut self, node_list: &mut Elements) -> &mut Self {
-		node_list.append(self);
+	pub fn append_to(&mut self, elements: &mut Elements) -> &mut Self {
+		elements.append(self);
 		self
 	}
 	/// pub fn `prepend`
-	pub fn prepend(&mut self, node_list: &mut Elements) -> &mut Self {
-		self.insert(node_list, &InsertPosition::AfterBegin);
+	pub fn prepend(&mut self, elements: &mut Elements) -> &mut Self {
+		self.insert(elements, &InsertPosition::AfterBegin);
 		self
 	}
 	/// pub fn `prepend_to`
-	pub fn prepend_to(&mut self, node_list: &mut Elements) -> &mut Self {
-		node_list.prepend(self);
+	pub fn prepend_to(&mut self, elements: &mut Elements) -> &mut Self {
+		elements.prepend(self);
 		self
 	}
 	/// pub fn `insert_before`
-	pub fn insert_before(&mut self, node_list: &mut Elements) -> &mut Self {
-		self.insert(node_list, &InsertPosition::BeforeBegin);
+	pub fn insert_before(&mut self, elements: &mut Elements) -> &mut Self {
+		elements.before(self);
 		self
 	}
 	/// pub fn `before`
-	pub fn before(&mut self, node_list: &mut Elements) -> &mut Self {
-		node_list.insert_before(self);
+	pub fn before(&mut self, elements: &mut Elements) -> &mut Self {
+		// insert the elements before self
+		self.insert(elements, &InsertPosition::BeforeBegin);
 		self
 	}
 	/// pub fn `insert_after`
-	pub fn insert_after(&mut self, node_list: &mut Elements) -> &mut Self {
-		self.insert(node_list, &InsertPosition::AfterEnd);
+	pub fn insert_after(&mut self, elements: &mut Elements) -> &mut Self {
+		elements.after(self);
 		self
 	}
 	/// pub fn `before`
-	pub fn after(&mut self, node_list: &mut Elements) -> &mut Self {
-		node_list.insert_after(self);
+	pub fn after(&mut self, elements: &mut Elements) -> &mut Self {
+		// insert the elements after self
+		self.insert(elements, &InsertPosition::AfterEnd);
 		self
 	}
 }
