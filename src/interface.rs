@@ -1225,11 +1225,28 @@ impl<'a> Elements<'a> {
 	}
 
 	// unique the nodes
-	fn unique<'b>(first: Elements<'b>, second: Elements<'b>) -> Elements<'b> {
+	fn unique<'b>(mut first: Elements<'b>, mut second: Elements<'b>) -> Elements<'b> {
 		if first.is_empty() {
 			return second;
 		}
-		// Todo: unique
+		if second.is_empty() {
+			return first;
+		}
+		// need optimize: use concurrency for faster
+		let mut repeated_indexs: Vec<usize> = Vec::with_capacity(second.length() / 2);
+		let first_ref = first.get_ref();
+		for (index, ele) in second.get_ref().iter().enumerate() {
+			for cur_ele in first_ref {
+				if cur_ele.is(ele) {
+					repeated_indexs.push(index);
+					break;
+				}
+			}
+		}
+		if !repeated_indexs.is_empty() {
+			retain_by_index(second.get_mut_ref(), &repeated_indexs);
+		}
+		first.get_mut_ref().extend(second);
 		first
 	}
 	// find a ele and then remove it
