@@ -1,9 +1,9 @@
 use crate::error::Error as IError;
 use crate::selector::{Combinator, QueryProcess, Selector, SelectorSegment};
 use crate::utils::{get_class_list, retain_by_index, to_static_str};
-use std::error::Error;
 use std::rc::Rc;
 use std::{any::Any, cmp::Ordering, collections::VecDeque, ops::Range};
+use std::{collections::HashMap, error::Error};
 const ATTR_CLASS: &str = "class";
 pub type MaybeElement<'a> = Option<BoxDynElement<'a>>;
 pub type MaybeDoc = Option<Box<dyn IDocumentTrait>>;
@@ -552,43 +552,7 @@ impl<'a> Elements<'a> {
 		}
 		result
 	}
-	/// pub fn `sort`
-	pub fn sort(mut self) -> Self {
-		// get the ele indexs in tree
-		fn get_tree_indexs(ele: &BoxDynElement) -> VecDeque<usize> {
-			let mut indexs: VecDeque<usize> = VecDeque::with_capacity(5);
-			fn loop_handle(ele: &BoxDynElement, indexs: &mut VecDeque<usize>) {
-				indexs.push_front(ele.index());
-				if let Some(parent) = &ele.parent() {
-					loop_handle(parent, indexs);
-				}
-			}
-			loop_handle(ele, &mut indexs);
-			indexs
-		}
-		// compare
-		fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
-			let a_total = a.len();
-			let b_total = b.len();
-			let loop_total = if a_total > b_total { b_total } else { a_total };
-			for i in 0..loop_total {
-				let a_index = a[i];
-				let b_index = b[i];
-				match a_index.cmp(&b_index) {
-					Ordering::Equal => continue,
-					order => return order,
-				}
-			}
-			Ordering::Equal
-		}
-		// sort
-		self.get_mut_ref().sort_by(|a, b| {
-			let a_indexs = get_tree_indexs(a);
-			let b_indexs = get_tree_indexs(b);
-			compare_indexs(&a_indexs, &b_indexs)
-		});
-		self
-	}
+
 	/// pub fn `length`
 	pub fn length(&self) -> usize {
 		self.nodes.len()
@@ -1225,29 +1189,180 @@ impl<'a> Elements<'a> {
 	}
 
 	// unique the nodes
-	fn unique<'b>(mut first: Elements<'b>, mut second: Elements<'b>) -> Elements<'b> {
-		if first.is_empty() {
-			return second;
+	fn unique<'b>(first_eles: Elements<'b>, second_eles: Elements<'b>) -> Elements<'b> {
+		if first_eles.is_empty() {
+			return second_eles;
 		}
-		if second.is_empty() {
-			return first;
+		if second_eles.is_empty() {
+			return first_eles;
+		}
+		// get the ele indexs in tree
+		fn get_tree_indexs(ele: &BoxDynElement) -> VecDeque<usize> {
+			let mut indexs: VecDeque<usize> = VecDeque::with_capacity(5);
+			fn loop_handle(ele: &BoxDynElement, indexs: &mut VecDeque<usize>) {
+				indexs.push_front(ele.index());
+				if let Some(parent) = &ele.parent() {
+					loop_handle(parent, indexs);
+				}
+			}
+			loop_handle(ele, &mut indexs);
+			indexs
+		}
+		// compare
+		fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
+			let a_total = a.len();
+			let b_total = b.len();
+			let loop_total = if a_total > b_total { b_total } else { a_total };
+			for i in 0..loop_total {
+				let a_index = a[i];
+				let b_index = b[i];
+				match a_index.cmp(&b_index) {
+					Ordering::Equal => continue,
+					order => return order,
+				}
+			}
+			Ordering::Equal
 		}
 		// need optimize: use concurrency for faster
-		let mut repeated_indexs: Vec<usize> = Vec::with_capacity(second.length() / 2);
-		let first_ref = first.get_ref();
-		for (index, ele) in second.get_ref().iter().enumerate() {
-			for cur_ele in first_ref {
-				if cur_ele.is(ele) {
-					repeated_indexs.push(index);
-					break;
+		let first_count = first_eles.length();
+		let second_count = second_eles.length();
+		let avg = second_count / 3;
+		let mut prevs: Vec<usize> = Vec::with_capacity(avg);
+		let mut mids: Vec<(usize, usize)> = Vec::with_capacity(avg);
+		let mut afters: Vec<usize> = Vec::with_capacity(avg);
+		let mut sec_left_index = 0;
+		let sec_right_index = second_count - 1;
+		let mut first_indexs: HashMap<usize, VecDeque<usize>> = HashMap::with_capacity(first_count);
+		let mut fir_left_index = 0;
+		let fir_right_index = first_count - 1;
+		let first = first_eles.get_ref();
+		let second = second_eles.get_ref();
+		while sec_left_index <= sec_right_index && fir_left_index <= fir_right_index {
+			// the second left
+			let sec_left = unsafe { second.get_unchecked(sec_left_index) };
+			let sec_left_level = get_tree_indexs(sec_left);
+			// the first left
+			let fir_left = unsafe { first.get_unchecked(fir_left_index) };
+			let fir_left_level = get_tree_indexs(fir_left);
+			match compare_indexs(&sec_left_level, &fir_left_level) {
+				Ordering::Equal => {
+					// both remove forward
+					sec_left_index += 1;
+					fir_left_index += 1;
+				}
+				Ordering::Greater => {
+					// second left is behind first left
+					// if second left is also behind first right
+					let fir_right = unsafe { first.get_unchecked(fir_right_index) };
+					let fir_right_level = get_tree_indexs(fir_right);
+					match compare_indexs(&sec_left_level, &fir_right_level) {
+						Ordering::Greater => {
+							// now second is all after first
+							afters.extend(sec_left_index..=sec_right_index);
+							break;
+						}
+						Ordering::Less => {
+							// second left is between first left and right
+							// use binary search
+							let mut l = fir_left_index;
+							let mut r = fir_right_index;
+							let mut mid = (l + r) / 2;
+							let mut find_equal = false;
+							while mid != l {
+								let middle = unsafe { first.get_unchecked(mid) };
+								let mid_level = first_indexs
+									.entry(mid)
+									.or_insert_with(|| get_tree_indexs(&middle));
+								match compare_indexs(&sec_left_level, &mid_level) {
+									Ordering::Greater => {
+										// second left is behind middle
+										l = mid;
+										mid = (l + r) / 2;
+									}
+									Ordering::Less => {
+										// second left is before middle
+										r = mid;
+										mid = (l + r) / 2;
+									}
+									Ordering::Equal => {
+										// find equal
+										find_equal = true;
+										break;
+									}
+								}
+							}
+							if !find_equal {
+								mids.push((sec_left_index, mid + 1));
+							}
+							// move first left index
+							fir_left_index = mid + 1;
+							// move second left index
+							sec_left_index += 1;
+						}
+						Ordering::Equal => {
+							// equal to first right, now all the second after current is behind first
+							afters.extend(sec_left_index + 1..=sec_right_index);
+							break;
+						}
+					}
+				}
+				Ordering::Less => {
+					let sec_right = unsafe { second.get_unchecked(sec_right_index) };
+					let sec_right_level = get_tree_indexs(sec_right);
+					match compare_indexs(&sec_right_level, &fir_left_level) {
+						Ordering::Less => {
+							// now second is all before first
+							prevs.extend(sec_left_index..=sec_right_index);
+							break;
+						}
+						Ordering::Greater => {
+							// second contains first or second right is in first
+							// just move second left
+							prevs.push(sec_left_index);
+							sec_left_index += 1;
+						}
+						Ordering::Equal => {
+							// equal to first left, now all the second are before first left
+							prevs.extend(sec_left_index..sec_right_index);
+							break;
+						}
+					}
 				}
 			}
 		}
-		if !repeated_indexs.is_empty() {
-			retain_by_index(second.get_mut_ref(), &repeated_indexs);
+		let prevs_count = prevs.len();
+		let mids_count = mids.len();
+		let afters_count = afters.len();
+		let mut result = Elements::with_capacity(first_count + prevs_count + mids_count + afters_count);
+		if prevs_count > 0 {
+			// add prevs
+			for index in prevs {
+				let ele = unsafe { second.get_unchecked(index) };
+				result.push(ele.cloned());
+			}
 		}
-		first.get_mut_ref().extend(second);
-		first
+		// add first and mids
+		let mut mid_loop = 0;
+		for (index, ele) in first_eles.get_ref().iter().enumerate() {
+			if mid_loop < mids_count {
+				let (sec_index, mid_index) = unsafe { mids.get_unchecked(mid_loop) };
+				if *mid_index == index {
+					mid_loop += 1;
+					let mid_ele = unsafe { second.get_unchecked(*sec_index) };
+					result.push(mid_ele.cloned());
+				}
+			}
+			result.push(ele.cloned());
+		}
+		// add afters
+		if afters_count > 0 {
+			// add afters
+			for index in afters {
+				let ele = unsafe { second.get_unchecked(index) };
+				result.push(ele.cloned());
+			}
+		}
+		result
 	}
 	// find a ele and then remove it
 	fn find_out<'b>(
