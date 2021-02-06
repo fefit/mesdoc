@@ -1212,7 +1212,8 @@ impl<'a> Elements<'a> {
 		fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
 			let a_total = a.len();
 			let b_total = b.len();
-			let loop_total = if a_total > b_total { b_total } else { a_total };
+			let a_is_deep = a_total > b_total;
+			let loop_total = if a_is_deep { b_total } else { a_total };
 			for i in 0..loop_total {
 				let a_index = a[i];
 				let b_index = b[i];
@@ -1221,9 +1222,12 @@ impl<'a> Elements<'a> {
 					order => return order,
 				}
 			}
+			if a_is_deep {
+				return Ordering::Greater;
+			}
 			Ordering::Equal
 		}
-		// need optimize: use concurrency for faster
+		// compare first and second
 		let first_count = first_eles.length();
 		let second_count = second_eles.length();
 		let avg = second_count / 3;
@@ -1237,12 +1241,12 @@ impl<'a> Elements<'a> {
 		let fir_right_index = first_count - 1;
 		let first = first_eles.get_ref();
 		let second = second_eles.get_ref();
-		while sec_left_index <= sec_right_index && fir_left_index <= fir_right_index {
+		while fir_left_index <= fir_right_index && sec_left_index <= sec_right_index {
 			// the second left
-			let sec_left = unsafe { second.get_unchecked(sec_left_index) };
+			let sec_left = &second[sec_left_index];
 			let sec_left_level = get_tree_indexs(sec_left);
 			// the first left
-			let fir_left = unsafe { first.get_unchecked(fir_left_index) };
+			let fir_left = &first[fir_left_index];
 			let fir_left_level = get_tree_indexs(fir_left);
 			match compare_indexs(&sec_left_level, &fir_left_level) {
 				Ordering::Equal => {
@@ -1253,7 +1257,7 @@ impl<'a> Elements<'a> {
 				Ordering::Greater => {
 					// second left is behind first left
 					// if second left is also behind first right
-					let fir_right = unsafe { first.get_unchecked(fir_right_index) };
+					let fir_right = &first[fir_right_index];
 					let fir_right_level = get_tree_indexs(fir_right);
 					match compare_indexs(&sec_left_level, &fir_right_level) {
 						Ordering::Greater => {
@@ -1269,7 +1273,7 @@ impl<'a> Elements<'a> {
 							let mut mid = (l + r) / 2;
 							let mut find_equal = false;
 							while mid != l {
-								let middle = unsafe { first.get_unchecked(mid) };
+								let middle = &first[mid];
 								let mid_level = first_indexs
 									.entry(mid)
 									.or_insert_with(|| get_tree_indexs(&middle));
@@ -1307,7 +1311,7 @@ impl<'a> Elements<'a> {
 					}
 				}
 				Ordering::Less => {
-					let sec_right = unsafe { second.get_unchecked(sec_right_index) };
+					let sec_right = &second[sec_right_index];
 					let sec_right_level = get_tree_indexs(sec_right);
 					match compare_indexs(&sec_right_level, &fir_left_level) {
 						Ordering::Less => {
@@ -1337,7 +1341,7 @@ impl<'a> Elements<'a> {
 		if prevs_count > 0 {
 			// add prevs
 			for index in prevs {
-				let ele = unsafe { second.get_unchecked(index) };
+				let ele = &second[index];
 				result.push(ele.cloned());
 			}
 		}
@@ -1345,10 +1349,10 @@ impl<'a> Elements<'a> {
 		let mut mid_loop = 0;
 		for (index, ele) in first_eles.get_ref().iter().enumerate() {
 			if mid_loop < mids_count {
-				let (sec_index, mid_index) = unsafe { mids.get_unchecked(mid_loop) };
+				let (sec_index, mid_index) = &mids[mid_loop];
 				if *mid_index == index {
 					mid_loop += 1;
-					let mid_ele = unsafe { second.get_unchecked(*sec_index) };
+					let mid_ele = &second[*sec_index];
 					result.push(mid_ele.cloned());
 				}
 			}
@@ -1358,7 +1362,7 @@ impl<'a> Elements<'a> {
 		if afters_count > 0 {
 			// add afters
 			for index in afters {
-				let ele = unsafe { second.get_unchecked(index) };
+				let ele = &second[index];
 				result.push(ele.cloned());
 			}
 		}
