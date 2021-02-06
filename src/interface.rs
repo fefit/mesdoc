@@ -1,9 +1,9 @@
 use crate::error::Error as IError;
 use crate::selector::{Combinator, QueryProcess, Selector, SelectorSegment};
 use crate::utils::{get_class_list, retain_by_index, to_static_str};
-use std::rc::Rc;
 use std::{any::Any, cmp::Ordering, collections::VecDeque, ops::Range};
 use std::{collections::HashMap, error::Error};
+use std::{collections::HashSet, rc::Rc};
 const ATTR_CLASS: &str = "class";
 pub type MaybeElement<'a> = Option<BoxDynElement<'a>>;
 pub type MaybeDoc = Option<Box<dyn IDocumentTrait>>;
@@ -142,6 +142,35 @@ pub trait INodeTrait {
 	fn set_html(&mut self, content: &str);
 	// ele index
 	fn index(&self) -> usize;
+}
+
+// get the ele indexs in tree
+fn get_tree_indexs(ele: &BoxDynElement) -> VecDeque<usize> {
+	let mut indexs: VecDeque<usize> = VecDeque::with_capacity(5);
+	fn loop_handle(ele: &BoxDynElement, indexs: &mut VecDeque<usize>) {
+		indexs.push_front(ele.index());
+		if let Some(parent) = &ele.parent() {
+			loop_handle(parent, indexs);
+		}
+	}
+	loop_handle(ele, &mut indexs);
+	indexs
+}
+
+// compare indexs
+fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
+	let a_total = a.len();
+	let b_total = b.len();
+	let loop_total = if a_total > b_total { b_total } else { a_total };
+	for i in 0..loop_total {
+		let a_index = a[i];
+		let b_index = b[i];
+		match a_index.cmp(&b_index) {
+			Ordering::Equal => continue,
+			order => return order,
+		}
+	}
+	a_total.cmp(&b_total)
 }
 
 pub trait ITextTrait: INodeTrait {
@@ -647,17 +676,76 @@ impl<'a> Elements<'a> {
 		}
 		Elements::new()
 	}
+	// keep one sibling, first<asc:true> or last<asc:false>
+	fn unique_sibling<'b>(&self, asc: bool) -> Elements<'b> {
+		let total = self.length();
+		let mut parents_indexs: HashSet<VecDeque<usize>> = HashSet::with_capacity(total);
+		let mut uniques = Elements::with_capacity(total);
+		let mut prev_parent: Option<BoxDynElement> = None;
+		let mut has_root = false;
+		let mut handle = |ele: &BoxDynElement| {
+			if let Some(parent) = &ele.parent() {
+				if let Some(prev_parent) = &prev_parent {
+					if parent.is(prev_parent) {
+						return;
+					}
+				}
+				// set prev parent
+				prev_parent = Some(parent.cloned());
+				// parents
+				let indexs = get_tree_indexs(parent);
+				// new parent
+				if parents_indexs.get(&indexs).is_none() {
+					parents_indexs.insert(indexs);
+					uniques.push(ele.cloned());
+				}
+			} else if !has_root {
+				has_root = true;
+				uniques.push(ele.cloned());
+			}
+		};
+		// just keep one sibling node
+		if asc {
+			for ele in self.get_ref() {
+				handle(ele);
+			}
+		} else {
+			for ele in self.get_ref().iter().rev() {
+				handle(ele)
+			}
+		}
+		uniques
+	}
+	// keep first sibling
+	fn unique_sibling_first<'b>(&self) -> Elements<'b> {
+		self.unique_sibling(true)
+	}
+	// keep last sibling
+	fn unique_sibling_last<'b>(&self) -> Elements<'b> {
+		self.unique_sibling(false)
+	}
+	// sort then unique
+	fn sort_and_unique(&mut self) {
+		self.get_mut_ref().sort_by(|a, b| {
+			let a_index = get_tree_indexs(a);
+			let b_index = get_tree_indexs(b);
+			compare_indexs(&a_index, &b_index)
+		});
+		self.get_mut_ref().dedup_by(|a, b| a.is(b));
+	}
 	// prev
 	pub fn prev<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("prev", selector, Combinator::Prev)
 	}
 	// prev_all
 	pub fn prev_all<'b>(&self, selector: &str) -> Elements<'b> {
-		self.select_with_comb("prev_all", selector, Combinator::PrevAll)
+		let uniques = self.unique_sibling_last();
+		uniques.select_with_comb("prev_all", selector, Combinator::PrevAll)
 	}
 	// prev_until
 	pub fn prev_until<'b>(&self, selector: &str, filter: &str, contains: bool) -> Elements<'b> {
-		self.select_with_comb_until("prev_until", selector, filter, contains, Combinator::Prev)
+		let uniques = self.unique_sibling_last();
+		uniques.select_with_comb_until("prev_until", selector, filter, contains, Combinator::Prev)
 	}
 	// next
 	pub fn next<'b>(&self, selector: &str) -> Elements<'b> {
@@ -665,69 +753,155 @@ impl<'a> Elements<'a> {
 	}
 	// next_all
 	pub fn next_all<'b>(&self, selector: &str) -> Elements<'b> {
-		self.select_with_comb("next_all", selector, Combinator::NextAll)
+		// unique, keep the first sibling node
+		let uniques = self.unique_sibling_first();
+		uniques.select_with_comb("next_all", selector, Combinator::NextAll)
 	}
 	// next_until
 	pub fn next_until<'b>(&self, selector: &str, filter: &str, contains: bool) -> Elements<'b> {
-		self.select_with_comb_until("next_until", selector, filter, contains, Combinator::Next)
+		// unique, keep the first sibling node
+		let uniques = self.unique_sibling_first();
+		uniques.select_with_comb_until("next_until", selector, filter, contains, Combinator::Next)
 	}
 	// siblings
 	pub fn siblings<'b>(&self, selector: &str) -> Elements<'b> {
-		self.select_with_comb("siblings", selector, Combinator::Siblings)
+		// should first unique siblings
+		// if have two siblings, then use parent.children
+		let total = self.length();
+		let mut parents_indexs: HashMap<VecDeque<usize>, (usize, bool)> = HashMap::with_capacity(total);
+		let mut uniques: Vec<(BoxDynElement, bool)> = Vec::with_capacity(total);
+		let mut prev_parent: Option<BoxDynElement> = None;
+		let mut continued = false;
+		// just keep one sibling node
+		for ele in self.get_ref() {
+			if let Some(parent) = &ele.parent() {
+				if let Some(prev_parent) = &prev_parent {
+					if parent.is(prev_parent) {
+						if !continued {
+							// may first meet the sibling, set use all children
+							if let Some(pair) = uniques.last_mut() {
+								*pair = (parent.cloned(), true);
+							}
+							continued = true;
+						}
+						continue;
+					}
+				}
+				// reset continued
+				continued = false;
+				// set prev parent
+				prev_parent = Some(parent.cloned());
+				// parent indexs
+				let indexs = get_tree_indexs(parent);
+				// new parent
+				if let Some((index, setted)) = parents_indexs.get_mut(&indexs) {
+					if !*setted {
+						if let Some(pair) = uniques.get_mut(*index) {
+							*pair = (parent.cloned(), true);
+						}
+						*setted = true;
+					}
+				} else {
+					parents_indexs.insert(indexs, (uniques.len(), false));
+					uniques.push((ele.cloned(), false));
+				}
+			}
+		}
+		self.trigger_method("siblings", selector, |selector| -> Elements {
+			let mut result = Elements::with_capacity(uniques.len() * 5);
+			for (ele, is_parent) in &uniques {
+				if !is_parent {
+					let eles = ele.siblings();
+				}
+			}
+			result
+		})
 	}
 	// children
 	pub fn children<'b>(&self, selector: &str) -> Elements<'b> {
 		self.select_with_comb("children", selector, Combinator::Children)
 	}
+
 	// parent
 	pub fn parent<'b>(&self, selector: &str) -> Elements<'b> {
-		self.select_with_comb("parent", selector, Combinator::Parent)
+		// unique, keep the first sibling node
+		let uniques = self.unique_sibling_first();
+		uniques.select_with_comb("parent", selector, Combinator::Parent)
 	}
 	// parents
 	pub fn parents<'b>(&self, selector: &str) -> Elements<'b> {
-		self.select_with_comb("parents", selector, Combinator::ParentAll)
+		// unique, keep the first sibling node
+		let uniques = self.unique_sibling_first();
+		let mut result = uniques.select_with_comb("parents", selector, Combinator::ParentAll);
+		result.sort_and_unique();
+		result
 	}
 	// parents_until
 	pub fn parents_until<'b>(&self, selector: &str, filter: &str, contains: bool) -> Elements<'b> {
-		self.select_with_comb_until(
+		// unique, keep the first sibling node
+		let uniques = self.unique_sibling_first();
+		let mut result = uniques.select_with_comb_until(
 			"parents_until",
 			selector,
 			filter,
 			contains,
 			Combinator::Parent,
-		)
+		);
+		result.sort_and_unique();
+		result
 	}
 	// closest
 	pub fn closest<'b>(&self, selector: &str) -> Elements<'b> {
+		// when selector is not provided
+		if selector.is_empty() {
+			return Elements::new();
+		}
+		// find the nearst node
 		const METHOD: &str = "closest";
 		let selector = selector.parse::<Selector>();
 		if let Ok(selector) = selector {
-			let segment = Selector::make_comb_all(Combinator::Parent);
-			let lookup_selector = Selector::from_segment(segment);
-			let mut result = Elements::with_capacity(self.length());
+			let total = self.length();
+			let mut result = Elements::with_capacity(total);
+			let mut propagations = Elements::with_capacity(total);
 			for ele in self.get_ref() {
 				let mut cur_eles = Elements::with_node(ele);
-				loop {
-					// find begin with self, then parents
-					if cur_eles
-						.filter_type_handle(METHOD, &selector, &FilterType::Is)
-						.1 > 0
-					{
-						result.get_mut_ref().push(
-							cur_eles
-								.get(0)
-								.expect("Elements get 0 must have when length > 0")
-								.cloned(),
-						);
-						break;
-					}
-					// set the cur_eles as parent
-					cur_eles = cur_eles.find_selector(&lookup_selector);
-					// break if parent is none
-					if cur_eles.is_empty() {
-						break;
+				if cur_eles
+					.filter_type_handle(METHOD, &selector, &FilterType::Is)
+					.1 > 0
+				{
+					// check self
+					result.get_mut_ref().push(cur_eles.get_mut_ref().remove(0));
+				} else {
+					propagations
+						.get_mut_ref()
+						.push(cur_eles.get_mut_ref().remove(0));
+				}
+			}
+			if !propagations.is_empty() {
+				let uniques = propagations.unique_sibling_first();
+				for ele in uniques.get_ref() {
+					let mut cur_eles = Elements::with_node(ele);
+					loop {
+						if cur_eles
+							.filter_type_handle(METHOD, &selector, &FilterType::Is)
+							.1 > 0
+						{
+							result.get_mut_ref().push(cur_eles.get_mut_ref().remove(0));
+							break;
+						}
+						if let Some(parent) = &cur_eles
+							.get(0)
+							.expect("Elements must have one node")
+							.parent()
+						{
+							cur_eles = Elements::with_node(parent);
+						} else {
+							break;
+						}
 					}
 				}
+				// need sort and unique
+				result.sort_and_unique();
 			}
 			result
 		} else {
@@ -1195,37 +1369,6 @@ impl<'a> Elements<'a> {
 		}
 		if second_eles.is_empty() {
 			return first_eles;
-		}
-		// get the ele indexs in tree
-		fn get_tree_indexs(ele: &BoxDynElement) -> VecDeque<usize> {
-			let mut indexs: VecDeque<usize> = VecDeque::with_capacity(5);
-			fn loop_handle(ele: &BoxDynElement, indexs: &mut VecDeque<usize>) {
-				indexs.push_front(ele.index());
-				if let Some(parent) = &ele.parent() {
-					loop_handle(parent, indexs);
-				}
-			}
-			loop_handle(ele, &mut indexs);
-			indexs
-		}
-		// compare
-		fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
-			let a_total = a.len();
-			let b_total = b.len();
-			let a_is_deep = a_total > b_total;
-			let loop_total = if a_is_deep { b_total } else { a_total };
-			for i in 0..loop_total {
-				let a_index = a[i];
-				let b_index = b[i];
-				match a_index.cmp(&b_index) {
-					Ordering::Equal => continue,
-					order => return order,
-				}
-			}
-			if a_is_deep {
-				return Ordering::Greater;
-			}
-			Ordering::Equal
 		}
 		// compare first and second
 		let first_count = first_eles.length();
