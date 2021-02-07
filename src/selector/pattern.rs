@@ -25,7 +25,7 @@ fn no_implemented(name: &str) -> ! {
 }
 
 pub type MatchedData = HashMap<&'static str, &'static str>;
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Matched {
 	pub chars: Vec<char>,
 	pub name: &'static str,

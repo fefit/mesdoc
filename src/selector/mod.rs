@@ -68,13 +68,13 @@ impl Combinator {
 }
 
 pub type SelectorSegment = (Arc<Rule>, Vec<Matched>, Combinator);
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct QueryProcess {
 	pub should_in: Option<SelectorGroupsItem>,
 	pub query: SelectorGroupsItem,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Selector {
 	pub process: Vec<QueryProcess>,
 }

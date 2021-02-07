@@ -724,13 +724,17 @@ impl<'a> Elements<'a> {
 	fn unique_sibling_last<'b>(&self) -> Elements<'b> {
 		self.unique_sibling(false)
 	}
-	// sort then unique
-	fn sort_and_unique(&mut self) {
+	// sort
+	fn sort(&mut self) {
 		self.get_mut_ref().sort_by(|a, b| {
 			let a_index = get_tree_indexs(a);
 			let b_index = get_tree_indexs(b);
 			compare_indexs(&a_index, &b_index)
 		});
+	}
+	// sort then unique
+	fn sort_and_unique(&mut self) {
+		self.sort();
 		self.get_mut_ref().dedup_by(|a, b| a.is(b));
 	}
 	// prev
@@ -807,15 +811,53 @@ impl<'a> Elements<'a> {
 				}
 			}
 		}
-		self.trigger_method("siblings", selector, |selector| -> Elements {
-			let mut result = Elements::with_capacity(uniques.len() * 5);
-			for (ele, is_parent) in &uniques {
-				if !is_parent {
-					let eles = ele.siblings();
-				}
+		// when selector is empty or only
+		let mut siblings_selector: Selector;
+		let siblings_comb = Combinator::Siblings;
+		let mut child_selector: Selector;
+		let child_comb = Combinator::Children;
+		let selector = selector.trim();
+		if selector.is_empty() {
+			siblings_selector = Selector::from_segment(Selector::make_comb_all(siblings_comb));
+			child_selector = Selector::from_segment(Selector::make_comb_all(child_comb));
+		} else {
+			// self
+			let sib_selector = selector.parse::<Selector>();
+			if let Ok(sib_selector) = sib_selector {
+				// clone the selector to a child selector
+				child_selector = sib_selector.clone();
+				child_selector.head_combinator(child_comb);
+				// use siblings selector
+				siblings_selector = sib_selector;
+				siblings_selector.head_combinator(siblings_comb);
+			} else {
+				self.trigger_method_throw_error(
+					"siblings",
+					Box::new(IError::InvalidTraitMethodCall {
+						method: "siblings".to_string(),
+						message: format!(
+							"Invalid selector:{}",
+							sib_selector.err().expect("Selector parse error")
+						),
+					}),
+				);
+				return Elements::new();
 			}
-			result
-		})
+		}
+		// uniques
+		let mut result = Elements::with_capacity(5);
+		for (ele, is_parent) in &uniques {
+			let eles = Elements::with_node(ele);
+			let finded = if *is_parent {
+				eles.find_selector(&child_selector)
+			} else {
+				eles.find_selector(&siblings_selector)
+			};
+			result.get_mut_ref().extend(finded);
+		}
+		// sort the result
+		result.sort();
+		result
 	}
 	// children
 	pub fn children<'b>(&self, selector: &str) -> Elements<'b> {
@@ -1393,7 +1435,7 @@ impl<'a> Elements<'a> {
 			let fir_left_level = get_tree_indexs(fir_left);
 			match compare_indexs(&sec_left_level, &fir_left_level) {
 				Ordering::Equal => {
-					// both remove forward
+					// move forward both
 					sec_left_index += 1;
 					fir_left_index += 1;
 				}
