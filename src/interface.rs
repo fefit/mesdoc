@@ -499,9 +499,7 @@ impl<'a> Elements<'a> {
 	pub(crate) fn push(&mut self, ele: BoxDynElement<'a>) {
 		self.get_mut_ref().push(ele);
 	}
-	pub fn get(&self, index: usize) -> Option<&BoxDynElement<'a>> {
-		self.get_ref().get(index)
-	}
+
 	pub(crate) fn trigger_method<F, T: Default>(&self, method: &str, selector: &str, handle: F) -> T
 	where
 		F: Fn(&mut Selector) -> T,
@@ -528,6 +526,7 @@ impl<'a> Elements<'a> {
 			}));
 		}
 	}
+	// ------------Create new element-----------
 	// new
 	pub fn new() -> Self {
 		Default::default()
@@ -542,15 +541,22 @@ impl<'a> Elements<'a> {
 			nodes: Vec::with_capacity(size),
 		}
 	}
+
+	// -------------Helpers------------
+	// get a element from the set
+	pub fn get(&self, index: usize) -> Option<&BoxDynElement<'a>> {
+		self.get_ref().get(index)
+	}
+
 	// get ref
 	pub fn get_ref(&self) -> &Vec<BoxDynElement<'a>> {
 		&self.nodes
 	}
+
 	// get mut ref
 	pub fn get_mut_ref(&mut self) -> &mut Vec<BoxDynElement<'a>> {
 		&mut self.nodes
 	}
-
 	// pub fn `for_each`
 	pub fn for_each<F>(&mut self, mut handle: F) -> &mut Self
 	where
@@ -1033,21 +1039,26 @@ impl<'a> Elements<'a> {
 							}
 						}
 						if !is_empty {
-							result = Elements::unique(result, group);
+							result = result.add(group);
 						}
 					} else {
 						let group = group.unwrap_or_else(|| self.cloned());
-						result = Elements::unique(result, group);
+						if !group.is_empty() {
+							result = result.add(group);
+						}
 					}
 				}
 			}
 		}
 		result
 	}
-	// `find`
+
+	/// pub fn `find`
+	/// get elements by selector, support most of css selectors
 	pub fn find<'b>(&self, selector: &str) -> Elements<'b> {
 		self.trigger_method("find", selector, |selector| self.find_selector(selector))
 	}
+
 	// filter_type_handle:
 	//          |   `loop_group:rule groups      |     'loop_node: ele list
 	// Filter   |     match one rule item        |      should loop all nodes
@@ -1180,6 +1191,7 @@ impl<'a> Elements<'a> {
 		}
 		(result, matched_num)
 	}
+
 	// filter in type
 	fn filter_in_handle<'b>(
 		&self,
@@ -1251,10 +1263,12 @@ impl<'a> Elements<'a> {
 		}
 		result
 	}
+
 	// filter in
 	pub fn filter_in<'b>(&self, search: &Elements) -> Elements<'b> {
 		self.filter_in_handle(search, FilterType::Filter).0
 	}
+
 	// is
 	pub fn is(&self, selector: &str) -> bool {
 		const METHOD: &str = "is";
@@ -1262,6 +1276,7 @@ impl<'a> Elements<'a> {
 			self.filter_type_handle(METHOD, selector, &FilterType::Is).1 > 0
 		})
 	}
+
 	// is by
 	pub fn is_by<F>(&self, handle: F) -> bool
 	where
@@ -1276,10 +1291,12 @@ impl<'a> Elements<'a> {
 		}
 		flag
 	}
+
 	// is in
 	pub fn is_in(&self, search: &Elements) -> bool {
 		self.filter_in_handle(search, FilterType::Is).1 > 0
 	}
+
 	// is_all
 	pub fn is_all(&self, selector: &str) -> bool {
 		const METHOD: &str = "is_all";
@@ -1290,6 +1307,7 @@ impl<'a> Elements<'a> {
 			count > 0 && count == self.length()
 		})
 	}
+
 	// is_all_by
 	pub fn is_all_by<F>(&self, handle: F) -> bool
 	where
@@ -1304,11 +1322,13 @@ impl<'a> Elements<'a> {
 		}
 		flag
 	}
+
 	// is_all_in
 	pub fn is_all_in(&self, search: &Elements) -> bool {
 		let count = self.filter_in_handle(search, FilterType::IsAll).1;
 		count > 0 && count == self.length()
 	}
+
 	// not
 	pub fn not<'b>(&self, selector: &str) -> Elements<'b> {
 		const METHOD: &str = "not";
@@ -1318,6 +1338,7 @@ impl<'a> Elements<'a> {
 				.0
 		})
 	}
+
 	// not by
 	pub fn not_by<'b, F>(&self, handle: F) -> Elements<'b>
 	where
@@ -1331,7 +1352,9 @@ impl<'a> Elements<'a> {
 		}
 		result
 	}
-	// not in
+
+	/// pub fn `not_in`
+	/// remove element from `Self` which is also in `search`
 	pub fn not_in<'b>(&self, search: &Elements) -> Elements<'b> {
 		self.filter_in_handle(search, FilterType::Not).0
 	}
@@ -1379,7 +1402,8 @@ impl<'a> Elements<'a> {
 		self.filter_by(|_, ele| loop_handle(ele, &search))
 	}
 
-	// eq
+	/// pub fn `eq`
+	/// get a element by index
 	pub fn eq<'b>(&self, index: usize) -> Elements<'b> {
 		if let Some(ele) = self.get(index) {
 			Elements::with_node(ele)
@@ -1388,7 +1412,21 @@ impl<'a> Elements<'a> {
 		}
 	}
 
-	// slice
+	/// pub fn `first`
+	/// get the first element, alias for 'eq(0)'
+	pub fn first<'b>(&self) -> Elements<'b> {
+		self.eq(0)
+	}
+
+	/// pub fn `last`
+	/// get the last element, alias for 'eq(len - 1)'
+	pub fn last<'b>(&self) -> Elements<'b> {
+		self.eq(self.length() - 1)
+	}
+
+	/// pub fn `slice`
+	/// get elements by a range parameter
+	/// `slice(0..1)` equal to `eq(0)`, `first`
 	pub fn slice<'b>(&self, range: Range<usize>) -> Elements<'b> {
 		let Range { start, end } = range;
 		let total = self.length();
@@ -1404,14 +1442,18 @@ impl<'a> Elements<'a> {
 		result
 	}
 
-	// unique the nodes
-	fn unique<'b>(first_eles: Elements<'b>, second_eles: Elements<'b>) -> Elements<'b> {
-		if first_eles.is_empty() {
-			return second_eles;
+	/// pub fn `add`
+	/// concat two element set to a new set,
+	/// it will take the owership of the parameter element set, but no sence to `Self`
+	pub fn add<'b>(&self, eles: Elements<'b>) -> Elements<'b> {
+		if self.is_empty() {
+			return eles;
 		}
-		if second_eles.is_empty() {
-			return first_eles;
+		if eles.is_empty() {
+			return self.cloned();
 		}
+		let first_eles = self;
+		let second_eles = &eles;
 		// compare first and second
 		let first_count = first_eles.length();
 		let second_count = second_eles.length();
@@ -1841,7 +1883,10 @@ impl<'a> Elements<'a> {
 		}
 		false
 	}
+
+	// -------------Content API----------------
 	/// pub fn `text`
+	/// get the text of each element in the set
 	pub fn text(&self) -> &str {
 		let mut result = String::with_capacity(50);
 		for ele in self.get_ref() {
@@ -1849,48 +1894,74 @@ impl<'a> Elements<'a> {
 		}
 		to_static_str(result)
 	}
+
 	/// pub fn `set_text`
+	/// set each element's text to content
 	pub fn set_text(&mut self, content: &str) -> &mut Self {
 		for ele in self.get_mut_ref() {
 			ele.set_text(content);
 		}
 		self
 	}
+
 	/// pub fn `html`
+	/// get the first element's html
 	pub fn html(&self) -> &str {
 		if let Some(ele) = self.get(0) {
 			return ele.inner_html();
 		}
 		""
 	}
+
 	/// pub fn `set_html`
+	/// set each element's html to content
 	pub fn set_html(&mut self, content: &str) -> &mut Self {
 		for ele in self.get_mut_ref() {
 			ele.set_html(content);
 		}
 		self
 	}
+
 	/// pub fn `outer_html`
+	/// get the first element's outer html
 	pub fn outer_html(&self) -> &str {
 		if let Some(ele) = self.get(0) {
 			return ele.outer_html();
 		}
 		""
 	}
+
+	/// pub fn `texts`
+	/// get the text node of each element
+	pub fn texts<'b>(&self, limit_depth: u32) -> Texts<'b> {
+		let mut result = Texts::with_capacity(5);
+		for ele in self.get_ref() {
+			if let Some(text_nodes) = ele.texts(limit_depth) {
+				result.get_mut_ref().extend(text_nodes);
+			}
+		}
+		result
+	}
+
+	// ---------------Attribute API------------------
 	/// pub fn `attr`
+	/// get the first element's attribute value
 	pub fn attr(&self, attr_name: &str) -> Option<IAttrValue> {
 		if let Some(ele) = self.get(0) {
 			return ele.get_attribute(attr_name);
 		}
 		None
 	}
+
 	/// pub fn `set_attr`
+	/// set each element's attribute to `key` = attr_name, `value` = value.  
 	pub fn set_attr(&mut self, attr_name: &str, value: Option<&str>) -> &mut Self {
 		for ele in self.get_mut_ref() {
 			ele.set_attribute(attr_name, value);
 		}
 		self
 	}
+
 	/// pub fn `remove_attr`
 	pub fn remove_attr(&mut self, attr_name: &str) -> &mut Self {
 		for ele in self.get_mut_ref() {
@@ -1898,6 +1969,7 @@ impl<'a> Elements<'a> {
 		}
 		self
 	}
+
 	/// pub fn `has_class`
 	pub fn has_class(&self, class_name: &str) -> bool {
 		let class_name = class_name.trim();
@@ -1918,6 +1990,7 @@ impl<'a> Elements<'a> {
 		}
 		false
 	}
+
 	/// pub fn `add_class`
 	pub fn add_class(&mut self, class_name: &str) -> &mut Self {
 		let class_name = class_name.trim();
@@ -2002,16 +2075,6 @@ impl<'a> Elements<'a> {
 		}
 		self
 	}
-	/// pub fn `texts`
-	pub fn texts<'b>(&self, limit_depth: u32) -> Texts<'b> {
-		let mut result = Texts::with_capacity(5);
-		for ele in self.get_ref() {
-			if let Some(text_nodes) = ele.texts(limit_depth) {
-				result.get_mut_ref().extend(text_nodes);
-			}
-		}
-		result
-	}
 
 	// -----------------DOM API--------------
 	/// pub fn `remove`
@@ -2072,7 +2135,7 @@ impl<'a> Elements<'a> {
 		elements.after(self);
 		self
 	}
-	/// pub fn `before`
+	/// pub fn `after`
 	pub fn after(&mut self, elements: &mut Elements) -> &mut Self {
 		// insert the elements after self
 		self.insert(elements, &InsertPosition::AfterEnd);
