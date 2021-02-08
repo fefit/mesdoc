@@ -158,7 +158,7 @@ fn get_tree_indexs(ele: &BoxDynElement) -> VecDeque<usize> {
 }
 
 // compare indexs
-fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
+pub fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
 	let a_total = a.len();
 	let b_total = b.len();
 	let loop_total = if a_total > b_total { b_total } else { a_total };
@@ -1468,13 +1468,22 @@ impl<'a> Elements<'a> {
 		let fir_right_index = first_count - 1;
 		let first = first_eles.get_ref();
 		let second = second_eles.get_ref();
+		// get first index cached or from cached
+		fn get_first_index_cached<'a>(
+			first_indexs: &'a mut HashMap<usize, VecDeque<usize>>,
+			first: &[BoxDynElement],
+			index: usize,
+		) -> &'a mut VecDeque<usize> {
+			first_indexs
+				.entry(index)
+				.or_insert_with(|| get_tree_indexs(&first[index]))
+		};
 		while fir_left_index <= fir_right_index && sec_left_index <= sec_right_index {
 			// the second left
 			let sec_left = &second[sec_left_index];
 			let sec_left_level = get_tree_indexs(sec_left);
 			// the first left
-			let fir_left = &first[fir_left_index];
-			let fir_left_level = get_tree_indexs(fir_left);
+			let fir_left_level = get_first_index_cached(&mut first_indexs, &first, fir_left_index);
 			match compare_indexs(&sec_left_level, &fir_left_level) {
 				Ordering::Equal => {
 					// move forward both
@@ -1484,8 +1493,7 @@ impl<'a> Elements<'a> {
 				Ordering::Greater => {
 					// second left is behind first left
 					// if second left is also behind first right
-					let fir_right = &first[fir_right_index];
-					let fir_right_level = get_tree_indexs(fir_right);
+					let fir_right_level = get_first_index_cached(&mut first_indexs, &first, fir_right_index);
 					match compare_indexs(&sec_left_level, &fir_right_level) {
 						Ordering::Greater => {
 							// now second is all after first
@@ -1500,10 +1508,7 @@ impl<'a> Elements<'a> {
 							let mut mid = (l + r) / 2;
 							let mut find_equal = false;
 							while mid != l {
-								let middle = &first[mid];
-								let mid_level = first_indexs
-									.entry(mid)
-									.or_insert_with(|| get_tree_indexs(&middle));
+								let mid_level = get_first_index_cached(&mut first_indexs, &first, mid);
 								match compare_indexs(&sec_left_level, &mid_level) {
 									Ordering::Greater => {
 										// second left is behind middle
@@ -1525,8 +1530,8 @@ impl<'a> Elements<'a> {
 							if !find_equal {
 								mids.push((sec_left_index, mid + 1));
 							}
-							// move first left index
-							fir_left_index = mid + 1;
+							// set first left from mid
+							fir_left_index = mid;
 							// move second left index
 							sec_left_index += 1;
 						}
@@ -1576,11 +1581,16 @@ impl<'a> Elements<'a> {
 		let mut mid_loop = 0;
 		for (index, ele) in first_eles.get_ref().iter().enumerate() {
 			if mid_loop < mids_count {
-				let (sec_index, mid_index) = &mids[mid_loop];
-				if *mid_index == index {
-					mid_loop += 1;
-					let mid_ele = &second[*sec_index];
-					result.push(mid_ele.cloned());
+				let cur_mids = &mids[mid_loop..];
+				// maybe multiple middles is between first left and right
+				for (sec_index, mid_index) in cur_mids {
+					if *mid_index == index {
+						mid_loop += 1;
+						let mid_ele = &second[*sec_index];
+						result.push(mid_ele.cloned());
+					} else {
+						break;
+					}
 				}
 			}
 			result.push(ele.cloned());
