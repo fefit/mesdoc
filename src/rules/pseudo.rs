@@ -601,6 +601,30 @@ fn pseudo_not(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
+/// pseudo selector: `:contains`
+fn pseudo_contains(rules: &mut Vec<RuleItem>) {
+	let name = ":contains";
+	let selector =
+		r##":contains({spaces}{regexp#(?:'((?:\\?+.)*?)'|"((?:\\?+.)*?)"|([^\s'"<>/=`]*))#}{spaces})"##;
+	let rule = RuleDefItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![("regexp", 0)],
+		Box::new(|eles: &Elements, params: &RuleMatchedData| -> Elements {
+			let search = Rule::param(&params, ("regexp", 0, "1"))
+				.or_else(|| Rule::param(&params, ("regexp", 0, "2")))
+				.or_else(|| Rule::param(&params, ("regexp", 0, "3")))
+				.expect("The :contains selector must have a content");
+			if search.is_empty() {
+				return eles.cloned();
+			}
+			eles.filter_by(|_, ele| ele.text().contains(search))
+		}),
+	);
+	rules.push(rule.into());
+}
+
 // -----------jquery selectors----------
 
 /// pseudo selector: `:header`
@@ -665,6 +689,8 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 	pseudo_only_of_type(rules);
 	// not
 	pseudo_not(rules);
+	// contains
+	pseudo_contains(rules);
 	// ---- jquery selectors -----
 	// :header alias
 	pseudo_alias_header(rules);
