@@ -1427,8 +1427,9 @@ impl<'a> Elements<'a> {
 	/// pub fn `slice`
 	/// get elements by a range parameter
 	/// `slice(0..1)` equal to `eq(0)`, `first`
-	pub fn slice<'b>(&self, range: Range<usize>) -> Elements<'b> {
-		let Range { start, end } = range;
+	pub fn slice<'b>(&self, range: &Range<usize>) -> Elements<'b> {
+		let start = range.start;
+		let end = range.end;
 		let total = self.length();
 		if start >= total {
 			return Elements::new();
