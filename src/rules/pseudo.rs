@@ -318,7 +318,7 @@ fn make_first_or_last_of_type(selector: &'static str, is_first: bool) -> RuleDef
 				names.insert(String::from(name));
 				false
 			}
-
+			// group then find
 			group_siblings_then_done(
 				eles,
 				|_| None,
@@ -547,33 +547,37 @@ fn pseudo_only_of_type(rules: &mut Vec<RuleItem>) {
 					let eles = eles.get_ref();
 					let range = &data.range;
 					let siblings = &eles[range.start..range.end];
-					let mut names: HashMap<String, bool> = HashMap::with_capacity(DEF_NODES_LEN);
-					let mut excludes: Vec<usize> = Vec::with_capacity(siblings.len());
-					for child in childs.get_ref() {
-						let name = child.tag_name();
-						if let Some(removed_done) = names.get_mut(name) {
-							if *removed_done {
-								// has removed the not only type
+					let mut only_names: Vec<(String, usize)> = Vec::with_capacity(DEF_NODES_LEN);
+					let mut repeated: Vec<String> = Vec::with_capacity(DEF_NODES_LEN);
+					for (index, child) in childs.get_ref().iter().enumerate() {
+						let name = String::from(child.tag_name());
+						if !repeated.contains(&name) {
+							let find_index = only_names
+								.iter()
+								.position(|(tag_name, _)| tag_name == &name);
+							if let Some(index) = find_index {
+								repeated.push(name);
+								only_names.remove(index);
 							} else {
-								// remove not only type
-								let mut repeat_indexs: Vec<usize> = Vec::with_capacity(siblings.len());
-								for (index, ele) in siblings.iter().enumerate() {
-									if excludes.contains(&index) {
-										continue;
-									}
-									if ele.tag_name() == name {
-										excludes.push(index);
-									}
-								}
-								*removed_done = true;
+								only_names.push((name, index));
 							}
-						} else {
-							names.insert(String::from(name), false);
 						}
 					}
-					if !siblings.is_empty() {
-						for node in siblings {
-							result.push(node.cloned());
+					let finded = result.get_mut_ref();
+					if siblings.len() == childs.length() {
+						for (_, index) in &only_names {
+							finded.push(siblings[*index].cloned());
+						}
+					} else {
+						let mut cur_index = 0;
+						for (name, _) in &only_names {
+							for (index, ele) in siblings[cur_index..].iter().enumerate() {
+								if ele.tag_name() == name {
+									cur_index += index + 1;
+									finded.push(ele.cloned());
+									break;
+								}
+							}
 						}
 					}
 				},
