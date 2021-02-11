@@ -1,14 +1,11 @@
-use std::{
-	collections::{HashMap, HashSet},
-	ops::Range,
-};
-
 use crate::interface::{BoxDynElement, Elements, INodeType};
 use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
 use crate::selector::{
 	pattern::Nth,
 	rule::{RuleAliasItem, RuleMatchedData},
 };
+use std::cmp::Ordering;
+use std::{collections::HashMap, ops::Range};
 
 const PRIORITY: u32 = 10;
 const DEF_NODES_LEN: usize = 5;
@@ -153,20 +150,20 @@ fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem 
 		 childs: &Elements|
 		 -> Vec<BoxDynElement> {
 			// do with the siblings
-			let child_nodes = childs.get_ref();
+			let childs = childs.get_ref();
 			let mut finded: Vec<BoxDynElement> = Vec::with_capacity(allow_indexs.len());
 			// optimize if loop all the childs
-			if range.len() == child_nodes.len() {
+			if range.len() == childs.len() {
 				// get all by indexs
 				for &index in allow_indexs {
-					finded.push(child_nodes[index].cloned());
+					finded.push(childs[index].cloned());
 				}
 			} else {
 				let mut cur_start = 0;
 				let eles = eles.get_ref();
 				let siblings = &eles[range.start..range.end];
 				for &index in allow_indexs {
-					let child = &child_nodes[index];
+					let child = &childs[index];
 					let mut has_matched = false;
 					for (i, ele) in siblings[cur_start..].iter().enumerate() {
 						if child.is(ele) {
@@ -187,19 +184,19 @@ fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem 
 	} else {
 		|eles: &Elements, range: &Range<usize>, allow_indexs: &[usize], childs: &Elements| {
 			// do with the siblings
-			let child_nodes = childs.get_ref();
-			let total = child_nodes.len();
+			let childs = childs.get_ref();
+			let total = childs.len();
 			let mut finded: Vec<BoxDynElement> = Vec::with_capacity(allow_indexs.len());
 			// optimize when loop all the childrens
 			if range.len() == total {
 				for &index in allow_indexs.iter().rev() {
-					finded.push(child_nodes[total - index - 1].cloned());
+					finded.push(childs[total - index - 1].cloned());
 				}
 			} else {
 				let eles = eles.get_ref();
 				let siblings = &eles[range.start..range.end];
 				let mut cur_end = range.len();
-				for (index, child) in child_nodes.iter().rev().enumerate() {
+				for (index, child) in childs.iter().rev().enumerate() {
 					let last_index = total - index - 1;
 					// use binary search for faster speed
 					if allow_indexs.binary_search(&last_index).is_err() {
@@ -270,123 +267,65 @@ fn pseudo_nth_last_child(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
-type NameCountHashMap = HashMap<String, usize>;
+type NameCounterHashMap = HashMap<String, usize>;
 
-// find the element
-fn find_matched_ele(
-	excludes: &mut Vec<usize>,
-	index: usize,
-	name: &str,
+// check if cur tag's name is ok
+fn get_allowed_name_ele(
 	ele: &BoxDynElement,
-	child: &BoxDynElement,
-	finded: &mut Vec<BoxDynElement>,
-) -> bool {
-	// in excludes, continue to ignore
-	if excludes.contains(&index) {
-		return false;
-	}
-	let cur_name = ele.tag_name();
-	if cur_name == name {
-		excludes.push(index);
-		if ele.is(child) {
-			finded.push(ele.cloned());
-			return true;
+	names: &mut NameCounterHashMap,
+	allow_indexs: &[usize],
+	node_indexs: &mut Vec<usize>,
+) {
+	let name = ele.tag_name();
+	if let Some(index) = names.get_mut(name) {
+		// increase index
+		*index += 1;
+		// use binary search is much faster than contains
+		if allow_indexs.binary_search(index).is_ok() {
+			node_indexs.push(ele.index())
+		}
+	} else {
+		let index = 0;
+		names.insert(String::from(name), index);
+		// just check if first is 0
+		if allow_indexs[0] == 0 {
+			node_indexs.push(ele.index())
 		}
 	}
-	false
 }
 
-// make for ':first-of-type', ':last-of-type'
-fn make_first_or_last_of_type(selector: &'static str, is_first: bool) -> RuleDefItem {
-	let name = selector;
-	// last of type
-	RuleDefItem(
-		name,
-		selector,
-		PRIORITY,
-		vec![],
-		Box::new(move |eles: &Elements, _: &RuleMatchedData| -> Elements {
-			let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
-			// check if has name, otherwise insert
-			fn has_name(names: &mut HashSet<String>, name: &str) -> bool {
-				// not the first type
-				if names.get(name).is_some() {
-					// continue to next loop, ignore the next process
-					return true;
-				}
-				// the first type of the name tag
-				names.insert(String::from(name));
-				false
-			}
-			// group then find
-			group_siblings_then_done(
-				eles,
-				|_| None,
-				|data: &mut SiblingsNodeData| {
-					let childs = data
-						.parent
-						.as_ref()
-						.expect("parent must set in callback")
-						.children();
-					// collect the names
-					let mut names: HashSet<String> = HashSet::with_capacity(5);
-					// eles
-					let eles = eles.get_ref();
-					let range = &data.range;
-					let siblings = &eles[range.start..range.end];
-					// exclude detected names
-					let mut excludes: Vec<usize> = Vec::with_capacity(siblings.len());
-					if is_first {
-						let finded = result.get_mut_ref();
-						// asc
-						for child in childs.get_ref() {
-							let name = child.tag_name();
-							// check name then find
-							if !has_name(&mut names, name) {
-								for (index, ele) in siblings.iter().enumerate() {
-									if find_matched_ele(&mut excludes, index, name, ele, child, finded) {
-										break;
-									}
-								}
-							}
-						}
-					} else {
-						let mut finded: Vec<BoxDynElement> = Vec::with_capacity(5);
-						// desc find
-						for child in childs.get_ref().iter().rev() {
-							let name = child.tag_name();
-							if !has_name(&mut names, name) {
-								for (index, ele) in siblings.iter().rev().enumerate() {
-									if find_matched_ele(&mut excludes, index, name, ele, child, &mut finded) {
-										break;
-									}
-								}
-							}
-						}
-						if !finded.is_empty() {
-							finded.reverse();
-							result.get_mut_ref().extend(finded);
-						}
+// collect available elements from siblings
+fn collect_avail_name_eles(
+	node_indexs: &mut Vec<usize>,
+	siblings: &[BoxDynElement],
+	finded: &mut Vec<BoxDynElement>,
+) {
+	let av_total = node_indexs.len();
+	if av_total > 0 {
+		let mut av_index = 0;
+		let sib_total = siblings.len();
+		let mut sib_index = 0;
+		while av_index < av_total && sib_index < sib_total {
+			let cur_avail_index = node_indexs[av_index];
+			av_index += 1;
+			for ele in &siblings[sib_index..] {
+				let cur_sib_index = ele.index();
+				match cur_sib_index.cmp(&cur_avail_index) {
+					Ordering::Equal => {
+						finded.push(ele.cloned());
+						sib_index += 1;
+						break;
 					}
-				},
-			);
-			result
-		}),
-	)
-}
-
-/// pseudo selector:`:first-of-type `
-fn pseudo_first_of_type(rules: &mut Vec<RuleItem>) {
-	// last of type
-	let rule = make_first_or_last_of_type(":first-of-type", true);
-	rules.push(rule.into());
-}
-
-/// pseudo selector:`:last-of-type`
-fn pseudo_last_of_type(rules: &mut Vec<RuleItem>) {
-	// last of type
-	let rule = make_first_or_last_of_type(":last-of-type", false);
-	rules.push(rule.into());
+					Ordering::Greater => {
+						break;
+					}
+					Ordering::Less => {
+						sib_index += 1;
+					}
+				}
+			}
+		}
+	}
 }
 
 // make nth of type: `:nth-of-type`, `:nth-last-of-type`
@@ -396,24 +335,6 @@ fn make_asc_or_desc_nth_of_type(selector: &'static str, asc: bool) -> RuleDefIte
 	} else {
 		":nth-last-of-type"
 	};
-	// check if cur tag's name is ok
-	fn is_name_ok(name: &str, names: &mut NameCountHashMap, allow_indexs: &[usize]) -> bool {
-		if let Some(index) = names.get_mut(name) {
-			// increase index
-			*index += 1;
-			// check if last_index is big than index
-			let last_index = allow_indexs[allow_indexs.len() - 1];
-			if *index > last_index {
-				false
-			} else {
-				allow_indexs.contains(index)
-			}
-		} else {
-			let index = 0;
-			names.insert(String::from(name), index);
-			allow_indexs.contains(&index)
-		}
-	}
 	// last of type
 	RuleDefItem(
 		name,
@@ -429,7 +350,10 @@ fn make_asc_or_desc_nth_of_type(selector: &'static str, asc: bool) -> RuleDefIte
 					eles,
 					|total: usize| Some(Nth::get_allowed_indexs(n, index, total)),
 					|data: &mut SiblingsNodeData| {
-						let allow_indexs = data.allow_indexs.as_ref().expect("allow indexs must set");
+						let allow_indexs = data
+							.allow_indexs
+							.as_ref()
+							.expect("Nth allow indexs must have");
 						// return if allow_indexs is empty
 						if allow_indexs.is_empty() {
 							return;
@@ -440,43 +364,23 @@ fn make_asc_or_desc_nth_of_type(selector: &'static str, asc: bool) -> RuleDefIte
 							.as_ref()
 							.expect("parent must set in callback")
 							.children();
-						let mut names: NameCountHashMap = HashMap::with_capacity(5);
+						let mut names: NameCounterHashMap = HashMap::with_capacity(5);
 						let range = &data.range;
 						let eles = eles.get_ref();
 						let siblings = &eles[range.start..range.end];
-						let mut excludes: Vec<usize> = Vec::with_capacity(siblings.len());
-						// loop
+						let mut node_indexs: Vec<usize> = Vec::with_capacity(childs.length());
+						// loop to get allowed child's node indexs
 						if asc {
-							let finded = result.get_mut_ref();
 							for child in childs.get_ref() {
-								let name = child.tag_name();
-								if is_name_ok(name, &mut names, allow_indexs) {
-									// loop the eles
-									for (index, ele) in siblings.iter().enumerate() {
-										if find_matched_ele(&mut excludes, index, name, ele, child, finded) {
-											break;
-										}
-									}
-								}
+								get_allowed_name_ele(child, &mut names, allow_indexs, &mut node_indexs);
 							}
 						} else {
-							let mut finded: Vec<BoxDynElement> = Vec::with_capacity(5);
 							for child in childs.get_ref().iter().rev() {
-								let name = child.tag_name();
-								if is_name_ok(name, &mut names, allow_indexs) {
-									// loop the eles
-									for (index, ele) in siblings.iter().rev().enumerate() {
-										if find_matched_ele(&mut excludes, index, name, ele, child, &mut finded) {
-											break;
-										}
-									}
-								}
+								get_allowed_name_ele(child, &mut names, allow_indexs, &mut node_indexs);
 							}
-							if !finded.is_empty() {
-								finded.reverse();
-								result.get_mut_ref().extend(finded);
-							}
+							node_indexs.reverse();
 						}
+						collect_avail_name_eles(&mut node_indexs, siblings, result.get_mut_ref());
 					},
 				);
 				result
@@ -496,6 +400,66 @@ fn pseudo_nth_of_type(rules: &mut Vec<RuleItem>) {
 fn pseudo_nth_last_of_type(rules: &mut Vec<RuleItem>) {
 	// last of type
 	let rule = make_asc_or_desc_nth_of_type(":nth-last-of-type({spaces}{nth}{spaces})", false);
+	rules.push(rule.into());
+}
+
+// make of type: `:first-of-type`, `:last-of-type`
+fn make_asc_or_desc_of_type(selector: &'static str, asc: bool) -> RuleDefItem {
+	let name = selector;
+	// last of type
+	RuleDefItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![],
+		Box::new(move |eles: &Elements, _: &RuleMatchedData| -> Elements {
+			let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
+			group_siblings_then_done(
+				eles,
+				|_| None,
+				|data: &mut SiblingsNodeData| {
+					let allow_indexs: Vec<usize> = vec![0];
+					// childs
+					let childs = data
+						.parent
+						.as_ref()
+						.expect("parent must set in callback")
+						.children();
+					let mut names: NameCounterHashMap = HashMap::with_capacity(5);
+					let range = &data.range;
+					let eles = eles.get_ref();
+					let siblings = &eles[range.start..range.end];
+					let mut node_indexs: Vec<usize> = Vec::with_capacity(childs.length());
+					// loop to get allowed child's node indexs
+					if asc {
+						for child in childs.get_ref() {
+							get_allowed_name_ele(child, &mut names, &allow_indexs, &mut node_indexs);
+						}
+					} else {
+						for child in childs.get_ref().iter().rev() {
+							get_allowed_name_ele(child, &mut names, &allow_indexs, &mut node_indexs);
+						}
+						node_indexs.reverse();
+					}
+					collect_avail_name_eles(&mut node_indexs, siblings, result.get_mut_ref());
+				},
+			);
+			result
+		}),
+	)
+}
+
+/// pseudo selector:`:first-of-type `
+fn pseudo_first_of_type(rules: &mut Vec<RuleItem>) {
+	// first of type, same as 'nth-of-type(0)'
+	let rule = make_asc_or_desc_of_type(":first-of-type", true);
+	rules.push(rule.into());
+}
+
+/// pseudo selector:`:last-of-type`
+fn pseudo_last_of_type(rules: &mut Vec<RuleItem>) {
+	// last of type, same as 'nth-last-of-type(0)'
+	let rule = make_asc_or_desc_of_type(":last-of-type", false);
 	rules.push(rule.into());
 }
 
@@ -563,19 +527,22 @@ fn pseudo_only_of_type(rules: &mut Vec<RuleItem>) {
 							}
 						}
 					}
-					let finded = result.get_mut_ref();
-					if siblings.len() == childs.length() {
-						for (_, index) in &only_names {
-							finded.push(siblings[*index].cloned());
-						}
-					} else {
-						let mut cur_index = 0;
-						for (name, _) in &only_names {
-							for (index, ele) in siblings[cur_index..].iter().enumerate() {
-								if ele.tag_name() == name {
-									cur_index += index + 1;
-									finded.push(ele.cloned());
-									break;
+					if !only_names.is_empty() {
+						let finded = result.get_mut_ref();
+						// most time, we detect all the childs
+						if siblings.len() == childs.length() {
+							for (_, index) in &only_names {
+								finded.push(siblings[*index].cloned());
+							}
+						} else {
+							let mut cur_index = 0;
+							for (name, _) in &only_names {
+								for (index, ele) in siblings[cur_index..].iter().enumerate() {
+									if ele.tag_name() == name {
+										cur_index += index + 1;
+										finded.push(ele.cloned());
+										break;
+									}
 								}
 							}
 						}
