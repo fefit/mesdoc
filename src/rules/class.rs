@@ -7,7 +7,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		".{identity}",
 		1000,
 		vec![("identity", 0)],
-		Box::new(|eles: &Elements, params: &RuleMatchedData, _| -> Elements {
+		Box::new(|eles: &Elements, params: &RuleMatchedData| -> Elements {
 			let class_name =
 				Rule::param(&params, "identity").expect("The 'class' selector is not correct");
 			let mut result = Elements::new();

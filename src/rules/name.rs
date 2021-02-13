@@ -7,7 +7,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		"{identity}",
 		100,
 		vec![("identity", 0)],
-		Box::new(|eles: &Elements, params: &RuleMatchedData, _| -> Elements {
+		Box::new(|eles: &Elements, params: &RuleMatchedData| -> Elements {
 			let name =
 				Rule::param(&params, "identity").expect("The 'name' selector must have a tag name");
 			let mut result = Elements::new();

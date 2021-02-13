@@ -8,7 +8,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		r##"[{spaces}{attr_key}{spaces}{regexp#(?:([*^$~|!]?)=\s*(?:'((?:\\?+.)*?)'|([^\s\]'"<>/=`]+)|"((?:\\?+.)*?)"))?#}{spaces}]"##,
 		10,
 		vec![("attr_key", 0), ("regexp", 0)],
-		Box::new(|eles: &Elements, params: &RuleMatchedData, _| -> Elements {
+		Box::new(|eles: &Elements, params: &RuleMatchedData| -> Elements {
 			let attr_key =
 				Rule::param(&params, "attr_key").expect("The attribute selector's key is not correct");
 			let attr_value = Rule::param(&params, ("regexp", 0, "2"))
