@@ -7,11 +7,11 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		"{identity}",
 		100,
 		vec![("identity", 0)],
-		Box::new(|nodes: &Elements, params: &RuleMatchedData| -> Elements {
+		Box::new(|eles: &Elements, params: &RuleMatchedData, _| -> Elements {
 			let name =
 				Rule::param(&params, "identity").expect("The 'name' selector must have a tag name");
 			let mut result = Elements::new();
-			for node in nodes.get_ref() {
+			for node in eles.get_ref() {
 				if node.tag_name() == name {
 					result.push(node.cloned());
 				}

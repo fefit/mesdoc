@@ -7,7 +7,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		"*",
 		0,
 		vec![],
-		Box::new(|nodes: &Elements, _| -> Elements { nodes.cloned() }),
+		Box::new(|eles: &Elements, _, _| -> Elements { eles.cloned() }),
 	)
 	.into();
 	rules.push(rule);

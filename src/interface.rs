@@ -1,6 +1,9 @@
-use crate::error::Error as IError;
-use crate::selector::{Combinator, QueryProcess, Selector, SelectorSegment};
 use crate::utils::{get_class_list, retain_by_index, to_static_str};
+use crate::{error::Error as IError, selector::rule::RuleOptions};
+use crate::{
+	rules::all,
+	selector::{Combinator, QueryProcess, Selector, SelectorSegment},
+};
 use std::{any::Any, cmp::Ordering, collections::VecDeque, ops::Range};
 use std::{collections::HashMap, error::Error};
 use std::{collections::HashSet, rc::Rc};
@@ -261,6 +264,24 @@ pub trait IElementTrait: INodeTrait {
 		}
 		false
 	}
+	// root element
+	fn root<'b>(&self) -> BoxDynElement<'b> {
+		let mut root = self.parent();
+		loop {
+			if root.is_some() {
+				let parent = root.as_ref().unwrap().parent();
+				if let Some(parent) = &parent {
+					root = Some(parent.cloned());
+				} else {
+					break;
+				}
+			} else {
+				break;
+			}
+		}
+		root.unwrap_or_else(|| self.cloned())
+	}
+	// cloned
 	fn cloned<'b>(&self) -> BoxDynElement<'b> {
 		let ele = self.clone_node();
 		ele.typed().into_element().unwrap()
@@ -641,9 +662,7 @@ impl<'a> Elements<'a> {
 						// find the next element
 						cur_eles = cur_eles.find_selector(&next_selector);
 						if !cur_eles.is_empty() {
-							let meet_until = cur_eles
-								.filter_type_handle(method, &selector, &FilterType::Is)
-								.1 > 0;
+							let meet_until = cur_eles.filter_type_handle(&selector, &FilterType::Is).1;
 							// meet the until element, and not contains, stop before check element
 							if meet_until && !contains {
 								break;
@@ -651,9 +670,7 @@ impl<'a> Elements<'a> {
 							// check if cur_eles filter
 							let should_add = if let Some(filter) = &filter {
 								// filter true
-								cur_eles
-									.filter_type_handle(method, filter, &FilterType::Is)
-									.1 > 0
+								cur_eles.filter_type_handle(filter, &FilterType::Is).1
 							} else {
 								// no need filter, just add
 								true
@@ -913,10 +930,7 @@ impl<'a> Elements<'a> {
 			let mut propagations = Elements::with_capacity(total);
 			for ele in self.get_ref() {
 				let mut cur_eles = Elements::with_node(ele);
-				if cur_eles
-					.filter_type_handle(METHOD, &selector, &FilterType::Is)
-					.1 > 0
-				{
+				if cur_eles.filter_type_handle(&selector, &FilterType::Is).1 {
 					// check self
 					result.get_mut_ref().push(cur_eles.get_mut_ref().remove(0));
 				} else {
@@ -930,10 +944,7 @@ impl<'a> Elements<'a> {
 				for ele in uniques.get_ref() {
 					let mut cur_eles = Elements::with_node(ele);
 					loop {
-						if cur_eles
-							.filter_type_handle(METHOD, &selector, &FilterType::Is)
-							.1 > 0
-						{
+						if cur_eles.filter_type_handle(&selector, &FilterType::Is).1 {
 							result.get_mut_ref().push(cur_eles.get_mut_ref().remove(0));
 							break;
 						}
@@ -961,6 +972,7 @@ impl<'a> Elements<'a> {
 	fn find_selector<'b>(&self, selector: &Selector) -> Elements<'b> {
 		let mut result = Elements::with_capacity(5);
 		if !self.is_empty() {
+			let options: RuleOptions = Default::default();
 			for p in &selector.process {
 				let QueryProcess { should_in, query } = p;
 				let first_query = &query[0];
@@ -970,9 +982,10 @@ impl<'a> Elements<'a> {
 				if let Some(lookup) = should_in {
 					let mut cur_group = Elements::with_capacity(5);
 					// get finded
-					let finded = Elements::select(self, first_query, Some(&Combinator::ChildrenAll));
+					let finded =
+						Elements::select(self, first_query, Some(&Combinator::ChildrenAll), &options);
 					if !finded.is_empty() {
-						let tops = Elements::select(self, &lookup[0], None);
+						let tops = Elements::select(self, &lookup[0], None, &options);
 						if !tops.is_empty() {
 							// remove the first
 							start_rule_index = 1;
@@ -980,7 +993,6 @@ impl<'a> Elements<'a> {
 							let mut prev_ele: Option<&BoxDynElement> = None;
 							let mut is_find = false;
 							let first_comb = &first_query[0].2;
-							let lookup_comb = &first_comb.reverse();
 							for ele in finded.get_ref() {
 								if prev_ele.is_some()
 									&& Elements::is_sibling(ele, prev_ele.expect("Has test is_some"))
@@ -1012,7 +1024,7 @@ impl<'a> Elements<'a> {
 									};
 								}
 								// check if the ele is in firsts
-								if tops.has_ele(ele, &lookup_comb, Some(&lookup[1..])) {
+								if tops.has_ele(ele, &first_comb, Some(&lookup[1..])) {
 									cur_group.push(ele.cloned());
 									is_find = true;
 								} else {
@@ -1030,9 +1042,10 @@ impl<'a> Elements<'a> {
 					let query = &query[start_rule_index..];
 					if !query.is_empty() {
 						let mut is_empty = false;
-						let mut group = Elements::select(group.as_ref().unwrap_or(self), &query[0], None);
+						let mut group =
+							Elements::select(group.as_ref().unwrap_or(self), &query[0], None, &options);
 						for rules in &query[1..] {
-							group = Elements::select(&group, rules, None);
+							group = Elements::select(&group, rules, None, &options);
 							if group.is_empty() {
 								is_empty = true;
 								break;
@@ -1066,130 +1079,94 @@ impl<'a> Elements<'a> {
 	// Is       |           all matched          |  once one ele is not matched, break the loop
 	fn filter_type_handle<'b>(
 		&self,
-		method: &str,
 		selector: &Selector,
 		filter_type: &FilterType,
-	) -> (Elements<'b>, usize) {
-		let groups_num = selector.process.len();
+	) -> (Elements<'b>, bool) {
 		let eles = self.get_ref();
 		let total = eles.len();
 		let mut result = Elements::with_capacity(total);
-		let mut matched_num = 0;
-		let is_not = *filter_type == FilterType::Not;
-		// loop for rules
-		fn loop_rules(
-			elements: &mut Elements,
-			query: &[Vec<SelectorSegment>],
-			method: &str,
-			comb: Combinator,
-			last_must_match: bool,
-		) -> Combinator {
-			let mut comb = comb;
-			let mut last_must_match = last_must_match;
-			// loop for the query
-			for rules in query.iter().rev() {
-				let first_rule = &rules[0];
-				for (index, rule) in rules.iter().enumerate() {
-					let find_list: Elements;
-					if index == 0 {
-						find_list = Elements::select_by_rule(&elements, rule, Some(&comb));
-					} else {
-						find_list = Elements::select_by_rule(&elements, rule, None);
-					}
-					if rule.0.in_cache {
-						// the ele list is in cache
-						let total = find_list.length();
-						if total > 0 {
-							let mut last_list = Elements::with_capacity(total);
-							let cur_comb = if index == 0 { comb } else { rule.2 };
-							// the last rule or the chain rule must match the ele list
-							if !(last_must_match || cur_comb == Combinator::Chain) {
-								// otherwise change the ele list to the real should matched ele list
-								*elements = elements.select_with_comb(method, "", cur_comb);
-								// test the find_list if in the real elements,so change the comb to chain
-								comb = Combinator::Chain;
-							}
-							for ele in find_list.get_ref() {
-								if elements.has_ele(ele, &comb, None) {
-									last_list.push(ele.cloned());
-								}
-							}
-							*elements = last_list;
-						} else {
-							*elements = find_list;
+		let mut all_matched = false;
+		let chain_comb = Combinator::Chain;
+		let mut root: Option<Elements> = None;
+		let filter_options = RuleOptions { no_cache: true };
+		for process in selector.process.iter() {
+			// filter methods make sure do not use `should_in`
+			let QueryProcess { query, should_in } = process;
+			let query_num = query.len();
+			let mut filtered = Elements::new();
+			if query_num > 0 {
+				let last_query = &query[query_num - 1];
+				let first_rule = &last_query[0];
+				filtered =
+					Elements::select_by_rule(self, first_rule, Some(&chain_comb), &filter_options).cloned();
+				if !filtered.is_empty() && last_query.len() > 1 {
+					for rule in &last_query[1..] {
+						filtered = Elements::select_by_rule(&filtered, rule, None, &filter_options);
+						if filtered.is_empty() {
+							break;
 						}
-					} else {
-						*elements = find_list;
-					}
-					if elements.is_empty() {
-						break;
 					}
 				}
-				// change the comb into cur first rule's reverse comb.
-				comb = first_rule.2.reverse();
-				// the last filter rule must in ele list
-				last_must_match = false;
-			}
-			comb
-		};
-		for ele in eles {
-			let mut ok_nums = 0;
-			'loop_group: for process in selector.process.iter() {
-				let QueryProcess { query, should_in } = process;
-				let mut elements = Elements::with_node(ele);
-				let comb = loop_rules(&mut elements, &query, method, Combinator::Chain, true);
-				// if has optimized `should_in` selectors
-				if let Some(should_in) = should_in {
-					if !elements.is_empty() {
-						loop_rules(&mut elements, &should_in, method, comb, false);
-					}
-				}
-				if elements.is_empty() {
-					if is_not {
-						// if is `not`, then the ele is not in cur group selector.
-						ok_nums += 1;
-					}
-				} else {
-					// match one of the group item
-					match filter_type {
-						FilterType::Filter => {
-							result.push(ele.cloned());
-							break 'loop_group;
+				if !filtered.is_empty() && (query_num > 1 || should_in.is_some()) {
+					// set root first
+					root = root.or_else(|| {
+						let root_element = filtered
+							.get(0)
+							.expect("Filtered length greater than 0")
+							.root();
+						Some(Elements::with_node(&root_element))
+					});
+					// get root elements
+					let root_eles = root.as_ref().expect("root element must have");
+					// find elements from root_eles by selector
+					let finded = root_eles.find_selector(&Selector {
+						process: vec![process.clone()],
+					});
+					if !finded.is_empty() {
+						let mut lasts = Elements::with_capacity(filtered.length());
+						for ele in filtered.get_ref() {
+							if finded.includes(ele) {
+								lasts.push(ele.cloned());
+							}
 						}
-						FilterType::Is | FilterType::IsAll => {
-							ok_nums += 1;
-						}
-						FilterType::Not => {}
+						filtered = lasts;
+					} else {
+						filtered = Elements::new();
 					}
 				}
 			}
-			// check the ele loop
-			match filter_type {
-				FilterType::Not => {
-					if ok_nums == groups_num {
-						result.push(ele.cloned());
-					}
-				}
-				FilterType::Is => {
-					// just find one matched
-					if ok_nums == groups_num {
-						matched_num += 1;
-						// break the loop for ele
+			if !filtered.is_empty() {
+				match filter_type {
+					FilterType::Is => {
+						all_matched = true;
 						break;
 					}
-				}
-				FilterType::IsAll => {
-					// should all matched, when find one is not matched, break the loop
-					if ok_nums != groups_num {
-						break;
-					} else {
-						matched_num += 1;
+					_ => {
+						result = result.add(filtered);
 					}
 				}
-				_ => {}
 			}
 		}
-		(result, matched_num)
+		match filter_type {
+			FilterType::IsAll => {
+				all_matched = result.length() == total;
+			}
+			FilterType::Not => {
+				// Exclude `filtered` from self
+				if result.is_empty() {
+					// no element matched the not selector
+					result = self.cloned();
+				} else {
+					// filtered by not in
+					result = self.not_in(&result);
+				}
+			}
+			_ => {
+				// FilterType::Is: just return 'all_matched'
+				// FilterType::Filter: just return 'result'
+			}
+		}
+		(result, all_matched)
 	}
 
 	// filter in type
@@ -1197,22 +1174,33 @@ impl<'a> Elements<'a> {
 		&self,
 		search: &Elements,
 		filter_type: FilterType,
-	) -> (Elements<'b>, usize) {
+	) -> (Elements<'b>, bool) {
 		let eles = self.get_ref();
 		let total = eles.len();
 		let mut result = Elements::with_capacity(total);
-		let mut matched_num = 0;
+		let mut all_matched = false;
 		match filter_type {
 			FilterType::Filter => {
+				let mut start_index = 0;
+				let search_total = search.length();
 				for ele in eles {
-					if search.includes(ele) {
+					if let Some(index) = search.index_of(ele, start_index) {
+						// also in search, include
+						start_index = index + 1;
 						result.push(ele.cloned());
+						if start_index >= search_total {
+							break;
+						}
 					}
 				}
 			}
 			FilterType::Not => {
+				let mut start_index = 0;
 				for ele in eles {
-					if !search.includes(ele) {
+					if let Some(index) = search.index_of(ele, start_index) {
+						// also in search, exclude
+						start_index = index + 1;
+					} else {
 						result.push(ele.cloned());
 					}
 				}
@@ -1220,32 +1208,36 @@ impl<'a> Elements<'a> {
 			FilterType::Is => {
 				for ele in eles {
 					if search.includes(ele) {
-						matched_num += 1;
+						all_matched = true;
 						break;
 					}
 				}
 			}
 			FilterType::IsAll => {
 				if total <= search.length() {
+					let mut is_all_matched = true;
+					let mut start_index = 0;
 					for ele in eles {
-						if !search.includes(ele) {
+						if let Some(index) = search.index_of(ele, start_index) {
+							// also in search, exclude
+							start_index = index + 1;
+						} else {
+							is_all_matched = false;
 							break;
 						}
-						matched_num += 1;
 					}
+					all_matched = is_all_matched;
 				}
 			}
 		}
-		(result, matched_num)
+		(result, all_matched)
 	}
 
 	// filter
 	pub fn filter<'b>(&self, selector: &str) -> Elements<'b> {
 		const METHOD: &str = "filter";
 		self.trigger_method(METHOD, selector, |selector| {
-			self
-				.filter_type_handle(METHOD, &selector, &FilterType::Filter)
-				.0
+			self.filter_type_handle(&selector, &FilterType::Filter).0
 		})
 	}
 
@@ -1273,7 +1265,7 @@ impl<'a> Elements<'a> {
 	pub fn is(&self, selector: &str) -> bool {
 		const METHOD: &str = "is";
 		self.trigger_method(METHOD, selector, |selector| {
-			self.filter_type_handle(METHOD, selector, &FilterType::Is).1 > 0
+			self.filter_type_handle(selector, &FilterType::Is).1
 		})
 	}
 
@@ -1294,17 +1286,14 @@ impl<'a> Elements<'a> {
 
 	// is in
 	pub fn is_in(&self, search: &Elements) -> bool {
-		self.filter_in_handle(search, FilterType::Is).1 > 0
+		self.filter_in_handle(search, FilterType::Is).1
 	}
 
 	// is_all
 	pub fn is_all(&self, selector: &str) -> bool {
 		const METHOD: &str = "is_all";
 		self.trigger_method(METHOD, selector, |selector| {
-			let count = self
-				.filter_type_handle(METHOD, &selector, &FilterType::IsAll)
-				.1;
-			count > 0 && count == self.length()
+			self.filter_type_handle(&selector, &FilterType::IsAll).1
 		})
 	}
 
@@ -1325,17 +1314,14 @@ impl<'a> Elements<'a> {
 
 	// is_all_in
 	pub fn is_all_in(&self, search: &Elements) -> bool {
-		let count = self.filter_in_handle(search, FilterType::IsAll).1;
-		count > 0 && count == self.length()
+		self.filter_in_handle(search, FilterType::IsAll).1
 	}
 
 	// not
 	pub fn not<'b>(&self, selector: &str) -> Elements<'b> {
 		const METHOD: &str = "not";
 		self.trigger_method(METHOD, selector, |selector| {
-			self
-				.filter_type_handle(METHOD, &selector, &FilterType::Not)
-				.0
+			self.filter_type_handle(&selector, &FilterType::Not).0
 		})
 	}
 
@@ -1365,8 +1351,8 @@ impl<'a> Elements<'a> {
 		fn loop_handle(ele: &BoxDynElement, selector: &Selector) -> bool {
 			let childs = ele.children();
 			if !childs.is_empty() {
-				let (_, count) = childs.filter_type_handle(METHOD, selector, &FilterType::Is);
-				if count > 0 {
+				let (_, all_matched) = childs.filter_type_handle(selector, &FilterType::Is);
+				if all_matched {
 					return true;
 				}
 				for child in childs.get_ref() {
@@ -1387,8 +1373,8 @@ impl<'a> Elements<'a> {
 		fn loop_handle(ele: &BoxDynElement, search: &Elements) -> bool {
 			let childs = ele.children();
 			if !childs.is_empty() {
-				let (_, count) = childs.filter_in_handle(search, FilterType::Is);
-				if count > 0 {
+				let (_, all_matched) = childs.filter_in_handle(search, FilterType::Is);
+				if all_matched {
 					return true;
 				}
 				for child in childs.get_ref() {
@@ -1629,6 +1615,7 @@ impl<'a> Elements<'a> {
 		elements: &Elements<'b>,
 		rule_item: &SelectorSegment,
 		comb: Option<&Combinator>,
+		options: &RuleOptions,
 	) -> Elements<'b> {
 		let cur_comb = comb.unwrap_or(&rule_item.2);
 		let (rule, matched, ..) = rule_item;
@@ -1642,7 +1629,7 @@ impl<'a> Elements<'a> {
 					let childs = ele.children();
 					if !childs.is_empty() {
 						// apply rule
-						let mut matched_childs = rule.apply(&childs, matched);
+						let mut matched_childs = rule.apply(&childs, matched, options);
 						for child in childs.get_ref() {
 							let matched = Elements::find_out(&mut matched_childs, child);
 							let is_matched = matched.is_some();
@@ -1656,7 +1643,7 @@ impl<'a> Elements<'a> {
 								}
 								// search sub child
 								let cur = Elements::with_node(child);
-								let sub_matched = Elements::select_by_rule(&cur, rule_item, comb);
+								let sub_matched = Elements::select_by_rule(&cur, rule_item, comb, options);
 								if !sub_matched.is_empty() {
 									result.get_mut_ref().extend(sub_matched);
 								}
@@ -1673,7 +1660,7 @@ impl<'a> Elements<'a> {
 			Children => {
 				for ele in elements.get_ref() {
 					let childs = ele.children();
-					let match_childs = rule.apply(&childs, matched);
+					let match_childs = rule.apply(&childs, matched, options);
 					if !match_childs.is_empty() {
 						result.get_mut_ref().extend(match_childs);
 					}
@@ -1683,7 +1670,7 @@ impl<'a> Elements<'a> {
 				for ele in elements.get_ref() {
 					if let Some(parent) = &ele.parent() {
 						let plist = Elements::with_node(parent);
-						let matched = rule.apply(&plist, matched);
+						let matched = rule.apply(&plist, matched, options);
 						if !matched.is_empty() {
 							result.get_mut_ref().extend(matched);
 						}
@@ -1694,12 +1681,12 @@ impl<'a> Elements<'a> {
 				for ele in elements.get_ref() {
 					if let Some(parent) = &ele.parent() {
 						let plist = Elements::with_node(parent);
-						let matched = rule.apply(&plist, matched);
+						let matched = rule.apply(&plist, matched, options);
 						if !matched.is_empty() {
 							result.get_mut_ref().extend(matched);
 						}
 						if parent.parent().is_some() {
-							let ancestors = Elements::select_by_rule(&plist, rule_item, comb);
+							let ancestors = Elements::select_by_rule(&plist, rule_item, comb, options);
 							if !ancestors.is_empty() {
 								result.get_mut_ref().extend(ancestors);
 							}
@@ -1710,7 +1697,7 @@ impl<'a> Elements<'a> {
 			NextAll => {
 				for ele in elements.get_ref() {
 					let nexts = ele.next_element_siblings();
-					let matched_nexts = rule.apply(&nexts, matched);
+					let matched_nexts = rule.apply(&nexts, matched, options);
 					if !matched_nexts.is_empty() {
 						result.get_mut_ref().extend(matched_nexts);
 					}
@@ -1724,13 +1711,15 @@ impl<'a> Elements<'a> {
 					}
 				}
 				if !nexts.is_empty() {
-					result = rule.apply(&nexts, matched);
+					result = rule.apply(&nexts, matched, options);
 				}
 			}
 			PrevAll => {
 				for ele in elements.get_ref() {
 					let nexts = ele.previous_element_siblings();
-					result.get_mut_ref().extend(rule.apply(&nexts, matched));
+					result
+						.get_mut_ref()
+						.extend(rule.apply(&nexts, matched, options));
 				}
 			}
 			Prev => {
@@ -1741,17 +1730,19 @@ impl<'a> Elements<'a> {
 					}
 				}
 				if !prevs.is_empty() {
-					result = rule.apply(&prevs, matched);
+					result = rule.apply(&prevs, matched, options);
 				}
 			}
 			Siblings => {
 				for ele in elements.get_ref() {
 					let siblings = ele.siblings();
-					result.get_mut_ref().extend(rule.apply(&siblings, matched));
+					result
+						.get_mut_ref()
+						.extend(rule.apply(&siblings, matched, options));
 				}
 			}
 			Chain => {
-				result = rule.apply(&elements, matched);
+				result = rule.apply(&elements, matched, options);
 			}
 		};
 		result
@@ -1761,6 +1752,7 @@ impl<'a> Elements<'a> {
 		elements: &Elements,
 		rules: &[SelectorSegment],
 		comb: Option<&Combinator>,
+		options: &RuleOptions,
 	) -> Elements<'b> {
 		let mut elements = elements.cloned();
 		for (index, rule_item) in rules.iter().enumerate() {
@@ -1772,22 +1764,22 @@ impl<'a> Elements<'a> {
 			};
 			if rule.in_cache {
 				// in cache
-				let finded = rule.apply(&elements, matched);
-				if !finded.is_empty() {
+				let finded = rule.apply(&elements, matched, options);
+				let is_use_cache = !options.no_cache;
+				if !finded.is_empty() && is_use_cache {
 					let mut result = Elements::with_capacity(finded.length());
-					let lookup_comb = comb.reverse();
 					for ele in finded.get_ref() {
-						if elements.has_ele(ele, &lookup_comb, None) {
+						if elements.has_ele(ele, comb, None) {
 							result.push(ele.cloned());
 						}
 					}
 					elements = result;
 				} else {
 					// set elements empty
-					elements = Elements::new();
+					elements = finded;
 				}
 			} else {
-				elements = Elements::select_by_rule(&elements, rule_item, None);
+				elements = Elements::select_by_rule(&elements, rule_item, Some(comb), options);
 			}
 			if elements.is_empty() {
 				break;
@@ -1811,19 +1803,20 @@ impl<'a> Elements<'a> {
 		lookup: Option<&'b [Vec<SelectorSegment>]>,
 	) -> bool {
 		let mut elements = Elements::with_node(ele);
-		let mut comb = comb;
+		let mut lookup_comb = comb.reverse();
 		if let Some(lookup) = lookup {
+			let options: RuleOptions = Default::default();
 			for rules in lookup.iter().rev() {
-				let finded = Elements::select(&elements, rules, Some(comb));
-				if elements.is_empty() {
+				let finded = Elements::select(&elements, rules, Some(&lookup_comb), &options);
+				if finded.is_empty() {
 					return false;
 				}
-				comb = &rules[0].2;
+				lookup_comb = rules[0].2.reverse();
 				elements = finded;
 			}
 		}
 		use Combinator::*;
-		match comb {
+		match lookup_comb {
 			Parent => {
 				for ele in elements.get_ref() {
 					if let Some(parent) = &ele.parent() {
@@ -1883,6 +1876,19 @@ impl<'a> Elements<'a> {
 	/// check if the ele list contains some ele
 	fn includes(&self, ele: &BoxDynElement) -> bool {
 		self.get_ref().iter().any(|n| ele.is(n))
+	}
+	/// index of
+	fn index_of(&self, ele: &BoxDynElement, start_index: usize) -> Option<usize> {
+		let total = self.length();
+		if start_index < total {
+			let nodes = self.get_ref();
+			for (index, cur_ele) in nodes[start_index..].iter().enumerate() {
+				if ele.is(cur_ele) {
+					return Some(start_index + index);
+				}
+			}
+		}
+		None
 	}
 	/// check if two nodes are siblings.
 	fn is_sibling(cur: &BoxDynElement, other: &BoxDynElement) -> bool {

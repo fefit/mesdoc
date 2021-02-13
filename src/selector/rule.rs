@@ -11,10 +11,21 @@ lazy_static! {
 }
 
 pub type RuleMatchedData = HashMap<SavedDataKey, &'static str>;
-pub type Handle =
-	Box<dyn (for<'a, 'r> Fn(&'a Elements<'r>, &'a RuleMatchedData) -> Elements<'r>) + Send + Sync>;
+pub type Handle = Box<
+	dyn (for<'a, 'r> Fn(&'a Elements<'r>, &'a RuleMatchedData, &'a RuleOptions) -> Elements<'r>)
+		+ Send
+		+ Sync,
+>;
 
 pub type AliasRule = Box<dyn (Fn(&[Matched]) -> &'static str) + Send + Sync>;
+
+// default no_cache: false, means use cache for id selectors
+// when is filter method, no_cache should be true, just detect element if have an id of the name.
+#[derive(Default)]
+pub struct RuleOptions {
+	pub no_cache: bool,
+}
+
 #[derive(Default)]
 pub struct Rule {
 	pub in_cache: bool,
@@ -267,7 +278,12 @@ impl Rule {
 			None
 		}
 	}
-	pub fn apply<'a, 'r>(&self, node_list: &'a Elements<'r>, matched: &[Matched]) -> Elements<'r> {
+	pub fn apply<'a, 'r>(
+		&self,
+		node_list: &'a Elements<'r>,
+		matched: &[Matched],
+		options: &RuleOptions,
+	) -> Elements<'r> {
 		if let Some(alias) = &self.alias {
 			let rule = alias(matched);
 			node_list.filter(rule)
@@ -277,7 +293,7 @@ impl Rule {
       .as_ref()
       .expect("The rule's handle must set before call `exec`,you should use `set_params` to set the handle.");
 			let params = self.data(matched);
-			handle(node_list, &params)
+			handle(node_list, &params, options)
 		}
 	}
 	pub fn data(&self, data: &[Matched]) -> RuleMatchedData {
