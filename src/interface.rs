@@ -1114,30 +1114,15 @@ impl<'a> Elements<'a> {
 					// get root elements
 					let root_eles = root.as_ref().expect("root element must have");
 					// find elements from root_eles by selector
-					let first_query = &query[0];
-					let firsts = root_eles.find_selector(&Selector {
-						process: vec![QueryProcess {
-							query: vec![first_query.clone()],
-							should_in: None,
-						}],
-					});
-					if !firsts.is_empty() {
-						let lookup = if query_num > 2 {
-							Some(&query[1..query_num - 1])
-						} else {
-							None
-						};
-						let mut lasts = Elements::with_capacity(filtered.length());
-						let comb = &last_query_first_rule.2;
-						for ele in filtered.get_ref() {
-							if firsts.has_ele(ele, comb, lookup) {
-								lasts.get_mut_ref().push(ele.cloned());
-							}
+					let lookup = Some(&query[..query_num - 1]);
+					let mut lasts = Elements::with_capacity(filtered.length());
+					let comb = &last_query_first_rule.2;
+					for ele in filtered.get_ref() {
+						if root_eles.has_ele(ele, comb, lookup) {
+							lasts.get_mut_ref().push(ele.cloned());
 						}
-						filtered = lasts;
-					} else {
-						filtered = Elements::new();
 					}
+					filtered = lasts;
 				}
 			}
 			if !filtered.is_empty() {

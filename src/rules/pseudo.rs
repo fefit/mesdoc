@@ -21,10 +21,10 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 		vec![],
 		Box::new(|eles: &Elements, _| -> Elements {
 			let mut result = Elements::with_capacity(DEF_NODES_LEN);
-			for node in eles.get_ref() {
-				let child_nodes = node.child_nodes();
+			for ele in eles.get_ref() {
+				let child_nodes = ele.child_nodes();
 				if child_nodes.is_empty() {
-					result.push(node.cloned());
+					result.push(ele.cloned());
 				} else {
 					let mut only_comments = true;
 					for node in child_nodes {
@@ -37,7 +37,7 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 						}
 					}
 					if only_comments {
-						result.push(node.cloned());
+						result.push(ele.cloned());
 					}
 				}
 			}
@@ -47,47 +47,32 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
-// make rule for ':first-child', ':last-child'
-fn make_first_or_last_child(selector: &'static str, is_first: bool) -> RuleDefItem {
+/// pseudo selector `:first-child,:last-child`
+fn pseudo_first_child(rules: &mut Vec<RuleItem>) {
+	// first-child,alias for ':nth-child(1)'
+	let selector = ":first-child";
 	let name = selector;
-	RuleDefItem(
+	let rule = RuleAliasItem(
 		name,
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |eles: &Elements, _: &RuleMatchedData| -> Elements {
-			let mut result = Elements::with_capacity(DEF_NODES_LEN);
-			let get_index = if is_first {
-				|_: usize| 0
-			} else {
-				|total: usize| total - 1
-			};
-			for node in eles.get_ref() {
-				if let Some(parent) = node.parent() {
-					let childs = parent.children();
-					let index = get_index(childs.length());
-					if let Some(child) = childs.get(index) {
-						if node.is(&child) {
-							result.push(node.cloned());
-						}
-					}
-				}
-			}
-			result
-		}),
-	)
-}
-
-/// pseudo selector `:first-child,:last-child`
-fn pseudo_first_child(rules: &mut Vec<RuleItem>) {
-	// last_child
-	let rule = make_first_or_last_child(":first-child", true);
+		Box::new(|_| ":nth-child(1)"),
+	);
 	rules.push(rule.into());
 }
 
 fn pseudo_last_child(rules: &mut Vec<RuleItem>) {
-	// last_child
-	let rule = make_first_or_last_child(":last-child", false);
+	// last-child,alias for ':nth-last-child(1)'
+	let selector = ":last-child";
+	let name = selector;
+	let rule = RuleAliasItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![],
+		Box::new(|_| ":nth-last-child(1)"),
+	);
 	rules.push(rule.into());
 }
 
@@ -415,63 +400,33 @@ fn pseudo_nth_last_of_type(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
-// make of type: `:first-of-type`, `:last-of-type`
-fn make_asc_or_desc_of_type(selector: &'static str, asc: bool) -> RuleDefItem {
+/// pseudo selector:`:first-of-type `
+fn pseudo_first_of_type(rules: &mut Vec<RuleItem>) {
+	// first of type, alias for 'nth-of-type(1)'
+	let selector = ":first-of-type";
 	let name = selector;
-	// last of type
-	RuleDefItem(
+	let rule = RuleAliasItem(
 		name,
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |eles: &Elements, _: &RuleMatchedData| -> Elements {
-			let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
-			group_siblings_then_done(
-				eles,
-				|_| None,
-				|data: &mut SiblingsNodeData| {
-					let allow_indexs: Vec<usize> = vec![0];
-					// childs
-					let childs = data
-						.parent
-						.as_ref()
-						.expect("parent must set in callback")
-						.children();
-					let mut names: NameCounterHashMap = HashMap::with_capacity(5);
-					let range = &data.range;
-					let eles = eles.get_ref();
-					let siblings = &eles[range.start..range.end];
-					let mut node_indexs: Vec<usize> = Vec::with_capacity(childs.length());
-					// loop to get allowed child's node indexs
-					if asc {
-						for child in childs.get_ref() {
-							get_allowed_name_ele(child, &mut names, &allow_indexs, &mut node_indexs);
-						}
-					} else {
-						for child in childs.get_ref().iter().rev() {
-							get_allowed_name_ele(child, &mut names, &allow_indexs, &mut node_indexs);
-						}
-						node_indexs.reverse();
-					}
-					collect_avail_name_eles(&mut node_indexs, siblings, result.get_mut_ref());
-				},
-			);
-			result
-		}),
-	)
-}
-
-/// pseudo selector:`:first-of-type `
-fn pseudo_first_of_type(rules: &mut Vec<RuleItem>) {
-	// first of type, same as 'nth-of-type(0)'
-	let rule = make_asc_or_desc_of_type(":first-of-type", true);
+		Box::new(|_| ":nth-of-type(1)"),
+	);
 	rules.push(rule.into());
 }
 
 /// pseudo selector:`:last-of-type`
 fn pseudo_last_of_type(rules: &mut Vec<RuleItem>) {
-	// last of type, same as 'nth-last-of-type(0)'
-	let rule = make_asc_or_desc_of_type(":last-of-type", false);
+	// last of type, alias for 'nth-last-of-type(1)'
+	let selector = ":last-of-type";
+	let name = selector;
+	let rule = RuleAliasItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![],
+		Box::new(|_| ":nth-last-of-type(1)"),
+	);
 	rules.push(rule.into());
 }
 
@@ -486,11 +441,18 @@ fn pseudo_only_child(rules: &mut Vec<RuleItem>) {
 		vec![],
 		Box::new(move |eles: &Elements, _| -> Elements {
 			let mut result = Elements::with_capacity(DEF_NODES_LEN);
-			for node in eles.get_ref() {
-				if let Some(parent) = node.parent() {
+			let mut prev_parent: Option<BoxDynElement> = None;
+			for ele in eles.get_ref() {
+				if let Some(parent) = &ele.parent() {
+					if let Some(prev_parent) = &prev_parent {
+						if prev_parent.is(parent) {
+							continue;
+						}
+					}
+					prev_parent = Some(parent.cloned());
 					let childs = parent.children();
 					if childs.length() == 1 {
-						result.push(node.cloned());
+						result.push(ele.cloned());
 					}
 				}
 			}
