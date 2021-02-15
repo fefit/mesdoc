@@ -617,7 +617,7 @@ impl<'a> Elements<'a> {
 		self.length() == 0
 	}
 	// for all combinator selectors
-	fn select_with_comb<'b>(&self, method: &str, selector: &str, comb: Combinator) -> Elements<'b> {
+	fn select_with_comb(&self, method: &str, selector: &str, comb: Combinator) -> Elements<'a> {
 		if selector.is_empty() {
 			let segment = Selector::make_comb_all(comb);
 			let selector = Selector::from_segment(segment);
@@ -629,14 +629,14 @@ impl<'a> Elements<'a> {
 		})
 	}
 	// for all combinator until selectors
-	fn select_with_comb_until<'b>(
+	fn select_with_comb_until(
 		&self,
 		method: &str,
 		selector: &str,
 		filter: &str,
 		contains: bool,
 		comb: Combinator,
-	) -> Elements<'b> {
+	) -> Elements<'a> {
 		let selector = selector.parse::<Selector>();
 		if let Ok(selector) = &selector {
 			let segment = Selector::make_comb_all(comb);
@@ -699,7 +699,7 @@ impl<'a> Elements<'a> {
 		Elements::new()
 	}
 	// keep one sibling, first<asc:true> or last<asc:false>
-	fn unique_sibling<'b>(&self, asc: bool) -> Elements<'b> {
+	fn unique_sibling(&self, asc: bool) -> Elements<'a> {
 		let total = self.length();
 		let mut parents_indexs: HashSet<VecDeque<usize>> = HashSet::with_capacity(total);
 		let mut uniques = Elements::with_capacity(total);
@@ -739,11 +739,11 @@ impl<'a> Elements<'a> {
 		uniques
 	}
 	// keep first sibling
-	fn unique_sibling_first<'b>(&self) -> Elements<'b> {
+	fn unique_sibling_first(&self) -> Elements<'a> {
 		self.unique_sibling(true)
 	}
 	// keep last sibling
-	fn unique_sibling_last<'b>(&self) -> Elements<'b> {
+	fn unique_sibling_last(&self) -> Elements<'a> {
 		self.unique_sibling(false)
 	}
 	// sort
@@ -760,37 +760,37 @@ impl<'a> Elements<'a> {
 		self.get_mut_ref().dedup_by(|a, b| a.is(b));
 	}
 	// prev
-	pub fn prev<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn prev(&self, selector: &str) -> Elements<'a> {
 		self.select_with_comb("prev", selector, Combinator::Prev)
 	}
 	// prev_all
-	pub fn prev_all<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn prev_all(&self, selector: &str) -> Elements<'a> {
 		let uniques = self.unique_sibling_last();
 		uniques.select_with_comb("prev_all", selector, Combinator::PrevAll)
 	}
 	// prev_until
-	pub fn prev_until<'b>(&self, selector: &str, filter: &str, contains: bool) -> Elements<'b> {
+	pub fn prev_until(&self, selector: &str, filter: &str, contains: bool) -> Elements<'a> {
 		let uniques = self.unique_sibling_last();
 		uniques.select_with_comb_until("prev_until", selector, filter, contains, Combinator::Prev)
 	}
 	// next
-	pub fn next<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn next(&self, selector: &str) -> Elements<'a> {
 		self.select_with_comb("next", selector, Combinator::Next)
 	}
 	// next_all
-	pub fn next_all<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn next_all(&self, selector: &str) -> Elements<'a> {
 		// unique, keep the first sibling node
 		let uniques = self.unique_sibling_first();
 		uniques.select_with_comb("next_all", selector, Combinator::NextAll)
 	}
 	// next_until
-	pub fn next_until<'b>(&self, selector: &str, filter: &str, contains: bool) -> Elements<'b> {
+	pub fn next_until(&self, selector: &str, filter: &str, contains: bool) -> Elements<'a> {
 		// unique, keep the first sibling node
 		let uniques = self.unique_sibling_first();
 		uniques.select_with_comb_until("next_until", selector, filter, contains, Combinator::Next)
 	}
 	// siblings
-	pub fn siblings<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn siblings(&self, selector: &str) -> Elements<'a> {
 		// should first unique siblings
 		// if have two siblings, then use parent.children
 		let total = self.length();
@@ -882,18 +882,18 @@ impl<'a> Elements<'a> {
 		result
 	}
 	// children
-	pub fn children<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn children(&self, selector: &str) -> Elements<'a> {
 		self.select_with_comb("children", selector, Combinator::Children)
 	}
 
 	// parent
-	pub fn parent<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn parent(&self, selector: &str) -> Elements<'a> {
 		// unique, keep the first sibling node
 		let uniques = self.unique_sibling_first();
 		uniques.select_with_comb("parent", selector, Combinator::Parent)
 	}
 	// parents
-	pub fn parents<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn parents(&self, selector: &str) -> Elements<'a> {
 		// unique, keep the first sibling node
 		let uniques = self.unique_sibling_first();
 		let mut result = uniques.select_with_comb("parents", selector, Combinator::ParentAll);
@@ -901,7 +901,7 @@ impl<'a> Elements<'a> {
 		result
 	}
 	// parents_until
-	pub fn parents_until<'b>(&self, selector: &str, filter: &str, contains: bool) -> Elements<'b> {
+	pub fn parents_until(&self, selector: &str, filter: &str, contains: bool) -> Elements<'a> {
 		// unique, keep the first sibling node
 		let uniques = self.unique_sibling_first();
 		let mut result = uniques.select_with_comb_until(
@@ -915,7 +915,7 @@ impl<'a> Elements<'a> {
 		result
 	}
 	// closest
-	pub fn closest<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn closest(&self, selector: &str) -> Elements<'a> {
 		// when selector is not provided
 		if selector.is_empty() {
 			return Elements::new();
@@ -968,7 +968,7 @@ impl<'a> Elements<'a> {
 		}
 	}
 	// for `find` and `select_with_comb`
-	fn find_selector<'b>(&self, selector: &Selector) -> Elements<'b> {
+	fn find_selector(&self, selector: &Selector) -> Elements<'a> {
 		let mut result = Elements::with_capacity(5);
 		if !self.is_empty() {
 			for p in &selector.process {
@@ -1064,7 +1064,7 @@ impl<'a> Elements<'a> {
 
 	/// pub fn `find`
 	/// get elements by selector, support most of css selectors
-	pub fn find<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn find(&self, selector: &str) -> Elements<'a> {
 		self.trigger_method("find", selector, |selector| self.find_selector(selector))
 	}
 
@@ -1073,11 +1073,11 @@ impl<'a> Elements<'a> {
 	// Filter   |     match one rule item        |      should loop all nodes
 	// Not      |        all not matched         |      should loop all nodes
 	// Is       |           all matched          |  once one ele is not matched, break the loop
-	fn filter_type_handle<'b>(
+	fn filter_type_handle(
 		&self,
 		selector: &Selector,
 		filter_type: &FilterType,
-	) -> (Elements<'b>, bool) {
+	) -> (Elements<'a>, bool) {
 		let eles = self.get_ref();
 		let total = eles.len();
 		let mut result = Elements::with_capacity(total);
@@ -1160,11 +1160,7 @@ impl<'a> Elements<'a> {
 	}
 
 	// filter in type
-	fn filter_in_handle<'b>(
-		&self,
-		search: &Elements,
-		filter_type: FilterType,
-	) -> (Elements<'b>, bool) {
+	fn filter_in_handle(&self, search: &Elements, filter_type: FilterType) -> (Elements<'a>, bool) {
 		let eles = self.get_ref();
 		let total = eles.len();
 		let mut result = Elements::with_capacity(total);
@@ -1224,7 +1220,7 @@ impl<'a> Elements<'a> {
 	}
 
 	// filter
-	pub fn filter<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn filter(&self, selector: &str) -> Elements<'a> {
 		const METHOD: &str = "filter";
 		self.trigger_method(METHOD, selector, |selector| {
 			self.filter_type_handle(&selector, &FilterType::Filter).0
@@ -1232,7 +1228,7 @@ impl<'a> Elements<'a> {
 	}
 
 	// filter_by
-	pub fn filter_by<'b, F>(&self, handle: F) -> Elements<'b>
+	pub fn filter_by<F>(&self, handle: F) -> Elements<'a>
 	where
 		F: Fn(usize, &BoxDynElement) -> bool,
 	{
@@ -1247,7 +1243,7 @@ impl<'a> Elements<'a> {
 	}
 
 	// filter in
-	pub fn filter_in<'b>(&self, search: &Elements) -> Elements<'b> {
+	pub fn filter_in(&self, search: &Elements) -> Elements<'a> {
 		self.filter_in_handle(search, FilterType::Filter).0
 	}
 
@@ -1308,7 +1304,7 @@ impl<'a> Elements<'a> {
 	}
 
 	// not
-	pub fn not<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn not(&self, selector: &str) -> Elements<'a> {
 		const METHOD: &str = "not";
 		self.trigger_method(METHOD, selector, |selector| {
 			self.filter_type_handle(&selector, &FilterType::Not).0
@@ -1316,7 +1312,7 @@ impl<'a> Elements<'a> {
 	}
 
 	// not by
-	pub fn not_by<'b, F>(&self, handle: F) -> Elements<'b>
+	pub fn not_by<F>(&self, handle: F) -> Elements<'a>
 	where
 		F: Fn(usize, &BoxDynElement) -> bool,
 	{
@@ -1331,12 +1327,12 @@ impl<'a> Elements<'a> {
 
 	/// pub fn `not_in`
 	/// remove element from `Self` which is also in `search`
-	pub fn not_in<'b>(&self, search: &Elements) -> Elements<'b> {
+	pub fn not_in(&self, search: &Elements) -> Elements<'a> {
 		self.filter_in_handle(search, FilterType::Not).0
 	}
 
 	// has
-	pub fn has<'b>(&self, selector: &str) -> Elements<'b> {
+	pub fn has(&self, selector: &str) -> Elements<'a> {
 		const METHOD: &str = "has";
 		fn loop_handle(ele: &BoxDynElement, selector: &Selector) -> bool {
 			let childs = ele.children();
@@ -1359,7 +1355,7 @@ impl<'a> Elements<'a> {
 	}
 
 	// has_in
-	pub fn has_in<'b>(&self, search: &Elements) -> Elements<'b> {
+	pub fn has_in(&self, search: &Elements) -> Elements<'a> {
 		fn loop_handle(ele: &BoxDynElement, search: &Elements) -> bool {
 			let childs = ele.children();
 			if !childs.is_empty() {
@@ -1380,7 +1376,7 @@ impl<'a> Elements<'a> {
 
 	/// pub fn `eq`
 	/// get a element by index
-	pub fn eq<'b>(&self, index: usize) -> Elements<'b> {
+	pub fn eq(&self, index: usize) -> Elements<'a> {
 		if let Some(ele) = self.get(index) {
 			Elements::with_node(ele)
 		} else {
@@ -1390,20 +1386,20 @@ impl<'a> Elements<'a> {
 
 	/// pub fn `first`
 	/// get the first element, alias for 'eq(0)'
-	pub fn first<'b>(&self) -> Elements<'b> {
+	pub fn first(&self) -> Elements<'a> {
 		self.eq(0)
 	}
 
 	/// pub fn `last`
 	/// get the last element, alias for 'eq(len - 1)'
-	pub fn last<'b>(&self) -> Elements<'b> {
+	pub fn last(&self) -> Elements<'a> {
 		self.eq(self.length() - 1)
 	}
 
 	/// pub fn `slice`
 	/// get elements by a range parameter
 	/// `slice(0..1)` equal to `eq(0)`, `first`
-	pub fn slice<'b>(&self, range: &Range<usize>) -> Elements<'b> {
+	pub fn slice(&self, range: &Range<usize>) -> Elements<'a> {
 		let start = range.start;
 		let end = range.end;
 		let total = self.length();
@@ -1422,7 +1418,7 @@ impl<'a> Elements<'a> {
 	/// pub fn `add`
 	/// concat two element set to a new set,
 	/// it will take the owership of the parameter element set, but no sence to `Self`
-	pub fn add<'b>(&self, eles: Elements<'b>) -> Elements<'b> {
+	pub fn add(&self, eles: Elements<'a>) -> Elements<'a> {
 		if self.is_empty() {
 			return eles;
 		}
@@ -1583,10 +1579,7 @@ impl<'a> Elements<'a> {
 		result
 	}
 	// find a ele and then remove it
-	fn find_out<'b>(
-		elements: &'b mut Elements<'a>,
-		item: &BoxDynElement,
-	) -> Option<BoxDynElement<'a>> {
+	fn find_out(elements: &mut Elements<'a>, item: &BoxDynElement) -> Option<BoxDynElement<'a>> {
 		let mut find_index: Option<usize> = None;
 		for (index, ele) in elements.get_ref().iter().enumerate() {
 			if ele.is(item) {
@@ -1601,11 +1594,11 @@ impl<'a> Elements<'a> {
 	}
 	// select one rule
 	// the rule must not in cache
-	fn select_by_rule<'b>(
-		elements: &Elements<'b>,
+	fn select_by_rule(
+		elements: &Elements<'a>,
 		rule_item: &SelectorSegment,
 		comb: Option<&Combinator>,
-	) -> Elements<'b> {
+	) -> Elements<'a> {
 		let cur_comb = comb.unwrap_or(&rule_item.2);
 		let (rule, matched, ..) = rule_item;
 		let mut result = Elements::with_capacity(5);
@@ -1733,28 +1726,26 @@ impl<'a> Elements<'a> {
 		result
 	}
 	// select ele by rules
-	fn select<'b>(
-		elements: &Elements,
+	fn select(
+		elements: &Elements<'a>,
 		rules: &[SelectorSegment],
 		comb: Option<&Combinator>,
-	) -> Elements<'b> {
-		let mut elements = elements.cloned();
-		for (index, rule_item) in rules.iter().enumerate() {
-			let cur_comb = &rule_item.2;
-			let comb = if index == 0 {
-				comb.unwrap_or(cur_comb)
-			} else {
-				cur_comb
-			};
-			elements = Elements::select_by_rule(&elements, rule_item, Some(comb));
-			if elements.is_empty() {
-				break;
+	) -> Elements<'a> {
+		let first_rule = &rules[0];
+		let comb = comb.or(Some(&first_rule.2));
+		let mut elements = Elements::select_by_rule(&elements, first_rule, comb);
+		if !elements.is_empty() && rules.len() > 1 {
+			for rule in &rules[1..] {
+				elements = Elements::select_by_rule(&elements, rule, None);
+				if elements.is_empty() {
+					break;
+				}
 			}
 		}
 		elements
 	}
 	// cloned
-	pub fn cloned<'b>(&'a self) -> Elements<'b> {
+	pub fn cloned(&self) -> Elements<'a> {
 		let mut result = Elements::with_capacity(self.length());
 		for ele in &self.nodes {
 			result.push(ele.cloned());
@@ -1762,11 +1753,11 @@ impl<'a> Elements<'a> {
 		result
 	}
 	// `has_ele`
-	pub(crate) fn has_ele<'b>(
+	pub(crate) fn has_ele(
 		&self,
-		ele: &'b BoxDynElement,
+		ele: &BoxDynElement,
 		comb: &Combinator,
-		lookup: Option<&'b [Vec<SelectorSegment>]>,
+		lookup: Option<&[Vec<SelectorSegment>]>,
 	) -> bool {
 		let mut elements = Elements::with_node(ele);
 		let mut lookup_comb = comb.reverse();
@@ -1915,7 +1906,7 @@ impl<'a> Elements<'a> {
 
 	/// pub fn `texts`
 	/// get the text node of each element
-	pub fn texts<'b>(&self, limit_depth: u32) -> Texts<'b> {
+	pub fn texts(&self, limit_depth: u32) -> Texts<'a> {
 		let mut result = Texts::with_capacity(5);
 		for ele in self.get_ref() {
 			if let Some(text_nodes) = ele.texts(limit_depth) {
