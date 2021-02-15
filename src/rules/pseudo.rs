@@ -47,35 +47,6 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 	rules.push(rule.into());
 }
 
-/// pseudo selector `:first-child,:last-child`
-fn pseudo_first_child(rules: &mut Vec<RuleItem>) {
-	// first-child,alias for ':nth-child(1)'
-	let selector = ":first-child";
-	let name = selector;
-	let rule = RuleAliasItem(
-		name,
-		selector,
-		PRIORITY,
-		vec![],
-		Box::new(|_| ":nth-child(1)"),
-	);
-	rules.push(rule.into());
-}
-
-fn pseudo_last_child(rules: &mut Vec<RuleItem>) {
-	// last-child,alias for ':nth-last-child(1)'
-	let selector = ":last-child";
-	let name = selector;
-	let rule = RuleAliasItem(
-		name,
-		selector,
-		PRIORITY,
-		vec![],
-		Box::new(|_| ":nth-last-child(1)"),
-	);
-	rules.push(rule.into());
-}
-
 // group siblings
 struct SiblingsNodeData<'a> {
 	range: Range<usize>,
@@ -261,6 +232,35 @@ fn pseudo_nth_child(rules: &mut Vec<RuleItem>) {
 /// pseudo selector: `:nth-child`
 fn pseudo_nth_last_child(rules: &mut Vec<RuleItem>) {
 	let rule = make_asc_or_desc_nth_child(":nth-last-child({spaces}{nth}{spaces})", false);
+	rules.push(rule.into());
+}
+
+/// pseudo selector `:first-child,:last-child`
+fn pseudo_first_child(rules: &mut Vec<RuleItem>) {
+	// first-child,alias for ':nth-child(1)'
+	let selector = ":first-child";
+	let name = selector;
+	let rule = RuleAliasItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![],
+		Box::new(|_| ":nth-child(1)"),
+	);
+	rules.push(rule.into());
+}
+
+fn pseudo_last_child(rules: &mut Vec<RuleItem>) {
+	// last-child,alias for ':nth-last-child(1)'
+	let selector = ":last-child";
+	let name = selector;
+	let rule = RuleAliasItem(
+		name,
+		selector,
+		PRIORITY,
+		vec![],
+		Box::new(|_| ":nth-last-child(1)"),
+	);
 	rules.push(rule.into());
 }
 
@@ -450,8 +450,17 @@ fn pseudo_only_child(rules: &mut Vec<RuleItem>) {
 						}
 					}
 					prev_parent = Some(parent.cloned());
-					let childs = parent.children();
-					if childs.length() == 1 {
+					let child_nodes = parent.child_nodes();
+					let mut count = 0;
+					for node in &child_nodes {
+						if matches!(node.node_type(), INodeType::Element) {
+							count += 1;
+							if count > 1 {
+								break;
+							}
+						}
+					}
+					if count == 1 {
 						result.push(ele.cloned());
 					}
 				}

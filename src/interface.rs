@@ -227,7 +227,7 @@ impl<'a> Texts<'a> {
 		self.for_each(handle)
 	}
 	// filter_by
-	pub fn filter_by<'b, F>(&self, handle: F) -> Texts<'b>
+	pub fn filter_by<F>(&self, handle: F) -> Texts<'a>
 	where
 		F: Fn(usize, &BoxDynText) -> bool,
 	{
