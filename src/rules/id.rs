@@ -1,6 +1,6 @@
 use crate::selector::rule::RuleMatchedData;
 use crate::selector::rule::{Rule, RuleItem};
-use crate::{constants::USE_CACHE_NAME, interface::Elements};
+use crate::{constants::USE_CACHE_DATAKEY, interface::Elements};
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule: RuleItem = RuleItem {
 		name: "id",
@@ -8,7 +8,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		rule: Rule {
 			priority: 10000,
 			in_cache: true,
-			fields: vec![("identity", 0), (USE_CACHE_NAME, 0)],
+			fields: vec![("identity", 0), USE_CACHE_DATAKEY],
 			handle: Some(Box::new(
 				|eles: &Elements, params: &RuleMatchedData| -> Elements {
 					let id = Rule::param(&params, "identity").expect("The 'id' selector is not correct");

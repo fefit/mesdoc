@@ -135,7 +135,12 @@ pub fn retain_by_index<T>(v: &mut Vec<T>, indexs: &[usize]) {
 }
 
 pub fn get_class_list(v: &str) -> Vec<&str> {
-	v.trim().split_ascii_whitespace().collect::<Vec<&str>>()
+	let v = v.trim();
+	if v.is_empty() {
+		vec![]
+	} else {
+		v.split_ascii_whitespace().collect::<Vec<&str>>()
+	}
 }
 
 mod test {

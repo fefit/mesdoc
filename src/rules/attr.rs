@@ -67,7 +67,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 			} else {
 				Box::new(|val: Option<IAttrValue>| val.is_some())
 			};
-			let mut result = Elements::new();
+			let mut result = Elements::with_capacity(eles.length() / 2);
 			for node in eles.get_ref() {
 				let cur_value = node.get_attribute(attr_key);
 				if handle(cur_value) {

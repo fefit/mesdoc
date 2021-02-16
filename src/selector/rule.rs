@@ -1,6 +1,6 @@
 use super::pattern::{self, exec, to_pattern, Matched, Pattern};
 use crate::utils::{to_static_str, vec_char_to_clean_str};
-use crate::{constants::USE_CACHE_NAME, interface::Elements};
+use crate::{constants::USE_CACHE_DATAKEY, interface::Elements};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt;
@@ -327,13 +327,13 @@ impl Rule {
 	// add use cache to matched data
 	pub fn use_cache(matched: &mut Vec<Matched>) {
 		matched.push(Matched {
-			name: USE_CACHE_NAME,
+			name: USE_CACHE_DATAKEY.0,
 			..Default::default()
 		});
 	}
 	// check if use cache
 	pub fn is_use_cache(params: &RuleMatchedData) -> bool {
-		params.get(&(USE_CACHE_NAME,).into()).is_some()
+		params.get(&USE_CACHE_DATAKEY.into()).is_some()
 	}
 }
 
