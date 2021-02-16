@@ -1,10 +1,10 @@
-use crate::error::Error as IError;
-use crate::selector::{Combinator, QueryProcess, Selector, SelectorSegment};
+use crate::selector::{rule::Rule, Combinator, QueryProcess, Selector, SelectorSegment};
 use crate::utils::{get_class_list, retain_by_index, to_static_str};
+use crate::{constants::ATTR_CLASS, error::Error as IError};
 use std::{any::Any, cmp::Ordering, collections::VecDeque, ops::Range};
 use std::{collections::HashMap, error::Error};
 use std::{collections::HashSet, rc::Rc};
-const ATTR_CLASS: &str = "class";
+
 pub type MaybeElement<'a> = Option<BoxDynElement<'a>>;
 pub type MaybeDoc = Option<Box<dyn IDocumentTrait>>;
 pub type BoxDynElement<'a> = Box<dyn IElementTrait + 'a>;
@@ -1069,10 +1069,12 @@ impl<'a> Elements<'a> {
 	}
 
 	// filter_type_handle:
-	//          |   `loop_group:rule groups      |     'loop_node: ele list
-	// Filter   |     match one rule item        |      should loop all nodes
-	// Not      |        all not matched         |      should loop all nodes
-	// Is       |           all matched          |  once one ele is not matched, break the loop
+	// type     | rule processes
+	// ----------------------------------------
+	// Filter   | merge all elmements which matched each process
+	// Not      | merge all elmements which matched each process, then exclude them all.
+	// Is       | once matched a process, break
+	// IsAll    | merge all elmements which matched each process, check if the matched equal to self
 	fn filter_type_handle(
 		&self,
 		selector: &Selector,
@@ -1732,8 +1734,30 @@ impl<'a> Elements<'a> {
 		comb: Option<&Combinator>,
 	) -> Elements<'a> {
 		let first_rule = &rules[0];
-		let comb = comb.or(Some(&first_rule.2));
-		let mut elements = Elements::select_by_rule(&elements, first_rule, comb);
+		let comb = comb.unwrap_or(&first_rule.2);
+		let mut elements = if first_rule.0.in_cache && matches!(comb, Combinator::ChildrenAll) {
+			// set use cache data
+			let (rule, matched, ..) = first_rule;
+			// clone matched data
+			let mut matched = matched.clone();
+			// add use cache
+			Rule::use_cache(&mut matched);
+			let cached = rule.apply(&elements, &matched);
+			let count = cached.length();
+			if count > 0 {
+				let mut result = Elements::with_capacity(count);
+				for ele in cached.get_ref() {
+					if elements.has_ele(ele, comb, None) {
+						result.push(ele.cloned());
+					}
+				}
+				result
+			} else {
+				Elements::new()
+			}
+		} else {
+			Elements::select_by_rule(&elements, first_rule, Some(comb))
+		};
 		if !elements.is_empty() && rules.len() > 1 {
 			for rule in &rules[1..] {
 				elements = Elements::select_by_rule(&elements, rule, None);

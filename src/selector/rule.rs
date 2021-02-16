@@ -1,6 +1,6 @@
 use super::pattern::{self, exec, to_pattern, Matched, Pattern};
-use crate::interface::Elements;
 use crate::utils::{to_static_str, vec_char_to_clean_str};
+use crate::{constants::USE_CACHE_NAME, interface::Elements};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt;
@@ -259,6 +259,7 @@ impl From<&str> for Rule {
 	}
 }
 
+// Rule methods
 impl Rule {
 	pub fn exec(&self, chars: &[char]) -> Option<(Vec<Matched>, usize, usize)> {
 		let (result, matched_len, matched_queue_item, _) = exec(&self.queues, chars);
@@ -268,17 +269,17 @@ impl Rule {
 			None
 		}
 	}
-	pub fn apply<'a, 'r>(&self, node_list: &'a Elements<'r>, matched: &[Matched]) -> Elements<'r> {
+	pub fn apply<'a, 'r>(&self, eles: &'a Elements<'r>, matched: &[Matched]) -> Elements<'r> {
 		if let Some(alias) = &self.alias {
 			let rule = alias(matched);
-			node_list.filter(rule)
+			eles.filter(rule)
 		} else {
 			let handle = self
       .handle
       .as_ref()
       .expect("The rule's handle must set before call `exec`,you should use `set_params` to set the handle.");
 			let params = self.data(matched);
-			handle(node_list, &params)
+			handle(eles, &params)
 		}
 	}
 	pub fn data(&self, data: &[Matched]) -> RuleMatchedData {
@@ -322,6 +323,17 @@ impl Rule {
 	// quick method to get param
 	pub fn param<T: Into<SavedDataKey>>(params: &RuleMatchedData, v: T) -> Option<&str> {
 		params.get(&v.into()).copied()
+	}
+	// add use cache to matched data
+	pub fn use_cache(matched: &mut Vec<Matched>) {
+		matched.push(Matched {
+			name: USE_CACHE_NAME,
+			..Default::default()
+		});
+	}
+	// check if use cache
+	pub fn is_use_cache(params: &RuleMatchedData) -> bool {
+		params.get(&(USE_CACHE_NAME,).into()).is_some()
 	}
 }
 

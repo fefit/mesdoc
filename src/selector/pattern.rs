@@ -31,6 +31,7 @@ pub struct Matched {
 	pub name: &'static str,
 	pub data: MatchedData,
 }
+
 pub trait Pattern: Send + Sync + Debug {
 	fn matched(&self, chars: &[char]) -> Option<Matched>;
 	// check if nested pattern
