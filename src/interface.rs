@@ -754,10 +754,14 @@ impl<'a> Elements<'a> {
 			compare_indexs(&a_index, &b_index)
 		});
 	}
+	// unique
+	fn unique(&mut self) {
+		self.get_mut_ref().dedup_by(|a, b| a.is(b));
+	}
 	// sort then unique
 	fn sort_and_unique(&mut self) {
 		self.sort();
-		self.get_mut_ref().dedup_by(|a, b| a.is(b));
+		self.unique();
 	}
 	// prev
 	pub fn prev(&self, selector: &str) -> Elements<'a> {
@@ -1640,8 +1644,11 @@ impl<'a> Elements<'a> {
 						}
 					}
 				}
+				// maybe not unique, because some elements may be parent and child relation.
+				result.sort_and_unique();
 			}
 			Children => {
+				// because elements is unique, so the children is unique too
 				for ele in elements.get_ref() {
 					let childs = ele.children();
 					let match_childs = rule.apply(&childs, matched);
@@ -1651,6 +1658,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			Parent => {
+				// because elements is unique, so the parent is unique too
 				for ele in elements.get_ref() {
 					if let Some(parent) = &ele.parent() {
 						let plist = Elements::with_node(parent);
@@ -1677,9 +1685,13 @@ impl<'a> Elements<'a> {
 						}
 					}
 				}
+				// maybe not unique
+				result.sort_and_unique();
 			}
 			NextAll => {
-				for ele in elements.get_ref() {
+				// unique siblings just keep first
+				let uniques = elements.unique_sibling_first();
+				for ele in uniques.get_ref() {
 					let nexts = ele.next_element_siblings();
 					let matched_nexts = rule.apply(&nexts, matched);
 					if !matched_nexts.is_empty() {
@@ -1688,6 +1700,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			Next => {
+				// because elements is unique, so the next is unique too
 				let mut nexts = Elements::with_capacity(elements.length());
 				for ele in elements.get_ref() {
 					if let Some(next) = ele.next_element_sibling() {
@@ -1699,7 +1712,9 @@ impl<'a> Elements<'a> {
 				}
 			}
 			PrevAll => {
-				for ele in elements.get_ref() {
+				// unique siblings just keep last
+				let uniques = elements.unique_sibling_last();
+				for ele in uniques.get_ref() {
 					let nexts = ele.previous_element_siblings();
 					result.get_mut_ref().extend(rule.apply(&nexts, matched));
 				}
@@ -1720,6 +1735,8 @@ impl<'a> Elements<'a> {
 					let siblings = ele.siblings();
 					result.get_mut_ref().extend(rule.apply(&siblings, matched));
 				}
+				// maybe not unique
+				result.sort_and_unique();
 			}
 			Chain => {
 				result = rule.apply(&elements, matched);
@@ -1751,6 +1768,7 @@ impl<'a> Elements<'a> {
 						result.push(ele.cloned());
 					}
 				}
+				result.sort_and_unique();
 				result
 			} else {
 				Elements::new()
