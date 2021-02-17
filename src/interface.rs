@@ -158,7 +158,7 @@ fn get_tree_indexs(ele: &BoxDynElement) -> VecDeque<usize> {
 }
 
 // compare indexs
-pub fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
+fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
 	let a_total = a.len();
 	let b_total = b.len();
 	let loop_total = if a_total > b_total { b_total } else { a_total };
@@ -171,6 +171,39 @@ pub fn compare_indexs(a: &VecDeque<usize>, b: &VecDeque<usize>) -> Ordering {
 		}
 	}
 	a_total.cmp(&b_total)
+}
+
+enum ElementRelation {
+	Ancestor,
+	Equal,
+	Descendant,
+	Feauture,
+}
+// check if ancestor and descendants
+fn relation_of(a: &VecDeque<usize>, b: &VecDeque<usize>) -> ElementRelation {
+	let a_total = a.len();
+	let b_total = b.len();
+	let loop_total = if a_total > b_total { b_total } else { a_total };
+	let mut equal_num = 0;
+	for i in 0..loop_total {
+		let a_index = a[i];
+		let b_index = b[i];
+		match a_index.cmp(&b_index) {
+			Ordering::Equal => {
+				equal_num += 1;
+				continue;
+			}
+			_ => break,
+		}
+	}
+	let a_left = a_total - equal_num;
+	let b_left = b_total - equal_num;
+	match (a_left == 0, b_left == 0) {
+		(false, false) => ElementRelation::Feauture,
+		(false, true) => ElementRelation::Descendant,
+		(true, true) => ElementRelation::Equal,
+		(true, false) => ElementRelation::Ancestor,
+	}
 }
 
 pub trait ITextTrait: INodeTrait {
@@ -746,6 +779,92 @@ impl<'a> Elements<'a> {
 	fn unique_sibling_last(&self) -> Elements<'a> {
 		self.unique_sibling(false)
 	}
+	// keep siblings
+	fn unique_all_siblings(&self) -> Vec<(BoxDynElement<'a>, bool)> {
+		// should first unique siblings
+		// if have two siblings, then use parent.children
+		let total = self.length();
+		let mut parents_indexs: HashMap<VecDeque<usize>, (usize, bool)> = HashMap::with_capacity(total);
+		let mut uniques: Vec<(BoxDynElement, bool)> = Vec::with_capacity(total);
+		let mut prev_parent: Option<BoxDynElement> = None;
+		let mut continued = false;
+		// just keep one sibling node
+		for ele in self.get_ref() {
+			if let Some(parent) = &ele.parent() {
+				if let Some(prev_parent) = &prev_parent {
+					if parent.is(prev_parent) {
+						if !continued {
+							// may first meet the sibling, set use all children
+							if let Some(pair) = uniques.last_mut() {
+								*pair = (parent.cloned(), true);
+							}
+							continued = true;
+						}
+						continue;
+					}
+				}
+				// reset continued
+				continued = false;
+				// set prev parent
+				prev_parent = Some(parent.cloned());
+				// parent indexs
+				let indexs = get_tree_indexs(parent);
+				// new parent
+				if let Some((index, setted)) = parents_indexs.get_mut(&indexs) {
+					if !*setted {
+						if let Some(pair) = uniques.get_mut(*index) {
+							*pair = (parent.cloned(), true);
+						}
+						*setted = true;
+					}
+				} else {
+					parents_indexs.insert(indexs, (uniques.len(), false));
+					uniques.push((ele.cloned(), false));
+				}
+			}
+		}
+		uniques
+	}
+	// unique parent, keep the top parent
+	fn unique_parents(&self) -> Elements<'a> {
+		// keep only top parent
+		let mut ancestors: Vec<(VecDeque<usize>, &BoxDynElement)> = Vec::with_capacity(self.length());
+		for ele in self.get_ref() {
+			let ele_indexs = get_tree_indexs(ele);
+			let mut need_add = false;
+			if !ancestors.is_empty() {
+				let mut sub_indexs: Vec<usize> = Vec::new();
+				for (index, (orig_ele_indexs, _)) in ancestors.iter().enumerate() {
+					match relation_of(&ele_indexs, orig_ele_indexs) {
+						ElementRelation::Feauture => {
+							need_add = true;
+							break;
+						}
+						ElementRelation::Ancestor => {
+							// this feature should not hit, just keep the logic
+							sub_indexs.push(index);
+							need_add = true;
+						}
+						_ => break,
+					}
+				}
+				// this will not trigger, just keep the logic
+				if !sub_indexs.is_empty() {
+					retain_by_index(&mut ancestors, &sub_indexs);
+				}
+			} else {
+				need_add = true;
+			}
+			if need_add {
+				ancestors.push((ele_indexs, ele));
+			}
+		}
+		let mut result = Elements::with_capacity(ancestors.len());
+		for (_, ele) in ancestors {
+			result.push(ele.cloned());
+		}
+		result
+	}
 	// sort
 	fn sort(&mut self) {
 		self.get_mut_ref().sort_by(|a, b| {
@@ -793,50 +912,10 @@ impl<'a> Elements<'a> {
 		let uniques = self.unique_sibling_first();
 		uniques.select_with_comb_until("next_until", selector, filter, contains, Combinator::Next)
 	}
+
 	// siblings
 	pub fn siblings(&self, selector: &str) -> Elements<'a> {
-		// should first unique siblings
-		// if have two siblings, then use parent.children
-		let total = self.length();
-		let mut parents_indexs: HashMap<VecDeque<usize>, (usize, bool)> = HashMap::with_capacity(total);
-		let mut uniques: Vec<(BoxDynElement, bool)> = Vec::with_capacity(total);
-		let mut prev_parent: Option<BoxDynElement> = None;
-		let mut continued = false;
-		// just keep one sibling node
-		for ele in self.get_ref() {
-			if let Some(parent) = &ele.parent() {
-				if let Some(prev_parent) = &prev_parent {
-					if parent.is(prev_parent) {
-						if !continued {
-							// may first meet the sibling, set use all children
-							if let Some(pair) = uniques.last_mut() {
-								*pair = (parent.cloned(), true);
-							}
-							continued = true;
-						}
-						continue;
-					}
-				}
-				// reset continued
-				continued = false;
-				// set prev parent
-				prev_parent = Some(parent.cloned());
-				// parent indexs
-				let indexs = get_tree_indexs(parent);
-				// new parent
-				if let Some((index, setted)) = parents_indexs.get_mut(&indexs) {
-					if !*setted {
-						if let Some(pair) = uniques.get_mut(*index) {
-							*pair = (parent.cloned(), true);
-						}
-						*setted = true;
-					}
-				} else {
-					parents_indexs.insert(indexs, (uniques.len(), false));
-					uniques.push((ele.cloned(), false));
-				}
-			}
-		}
+		let uniques = self.unique_all_siblings();
 		// when selector is empty or only
 		let mut siblings_selector: Selector;
 		let siblings_comb = Combinator::Siblings;
@@ -1611,8 +1690,10 @@ impl<'a> Elements<'a> {
 		use Combinator::*;
 		match cur_comb {
 			ChildrenAll => {
+				// unique if have ancestor and descendant relation elements
+				let uniques = elements.unique_parents();
 				// depth first search, keep the appear order
-				for ele in elements.get_ref() {
+				for ele in uniques.get_ref() {
 					// get children
 					let childs = ele.children();
 					if !childs.is_empty() {
@@ -1644,8 +1725,6 @@ impl<'a> Elements<'a> {
 						}
 					}
 				}
-				// maybe not unique, because some elements may be parent and child relation.
-				result.sort_and_unique();
 			}
 			Children => {
 				// because elements is unique, so the children is unique too
@@ -1685,7 +1764,7 @@ impl<'a> Elements<'a> {
 						}
 					}
 				}
-				// maybe not unique
+				// maybe not unique, need sort and unique
 				result.sort_and_unique();
 			}
 			NextAll => {
@@ -1720,6 +1799,7 @@ impl<'a> Elements<'a> {
 				}
 			}
 			Prev => {
+				// because elements is unique, so the prev is unique too
 				let mut prevs = Elements::with_capacity(elements.length());
 				for ele in elements.get_ref() {
 					if let Some(next) = ele.previous_element_sibling() {
@@ -1731,14 +1811,28 @@ impl<'a> Elements<'a> {
 				}
 			}
 			Siblings => {
-				for ele in elements.get_ref() {
-					let siblings = ele.siblings();
-					result.get_mut_ref().extend(rule.apply(&siblings, matched));
+				if elements.length() > 1000 {
+					// unique first
+					let uniques = elements.unique_all_siblings();
+					for (ele, is_parent) in uniques {
+						let eles = if !is_parent {
+							ele.siblings()
+						} else {
+							ele.children()
+						};
+						result.get_mut_ref().extend(rule.apply(&eles, matched));
+					}
+				} else {
+					for ele in elements.get_ref() {
+						let siblings = ele.siblings();
+						result.get_mut_ref().extend(rule.apply(&siblings, matched));
+					}
+					// not unique, need sort and unique
+					result.sort_and_unique();
 				}
-				// maybe not unique
-				result.sort_and_unique();
 			}
 			Chain => {
+				// just filter
 				result = rule.apply(&elements, matched);
 			}
 		};
