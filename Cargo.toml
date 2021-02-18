@@ -1,6 +1,6 @@
 [package]
 name = "mesdoc"
-version = "0.1.19"
+version = "0.1.20"
 authors = ["jxz_211 <jxz_211@163.com>"]
 edition = "2018"
 license = "MIT"
