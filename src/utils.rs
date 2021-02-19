@@ -143,6 +143,7 @@ pub fn get_class_list(v: &str) -> Vec<&str> {
 	}
 }
 
+#[cfg(test)]
 mod test {
 	use super::{divide_isize, RoundType};
 	#[test]
