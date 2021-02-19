@@ -21,7 +21,7 @@ A html document node tree operation API.
 | `fn owner_document(&self) -> MaybeDocResult;`     | 获取元素的当前 document 文档                     |
 | `fn clone_node<'b>(&self) -> BoxDynNode<'b>;`     | 复制 node 节点                                   |
 
-### `IElementTrait`
+### `IElementTrait : INodeTrait`
 
 | 方法                                                                              | 参数说明                                                                                              |
 | :-------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------- |
@@ -37,7 +37,7 @@ A html document node tree operation API.
 | `fn cloned<'b>(&self) -> BoxDynElement<'b>;`                                      | 复制元素，通常为该元素的一个新引用                                                                    |
 | `fn into_text<'b>(self:Box<Self>) -> BoxDynText<'b>;`                             | 对于 style,script,title,textarea,pre 类的标签                                                         |
 
-### `ITextTrait`
+### `ITextTrait : INodeTrait`
 
 | 方法                                            | 参数说明               |
 | :---------------------------------------------- | :--------------------- |
@@ -51,6 +51,8 @@ A html document node tree operation API.
 | :------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------- |
 | `fn get_element_by_id<'b>(&self, id: &str) -> Option<BoxDynElement<'b>>;` | 通过 id 查找标签                                                                          |
 | `fn onerror(&self) -> Option<Rc<IErrorHandle>>`                           | 获取错误处理函数，如果需要针对错误进行处理，需要实现该方法。`Box<dyn Fn(Box<dyn Error>)>` |
+| `fn source_code(&self) -> &'static str;`                                  | 获取文档的源代码                                                                          |
+| `fn get_root_node<'b>(&self) -> BoxDynNode<'b>;`                          | 获取文档根节点                                                                            |
 
 以上即为所有需要实现的接口，实现接口后，将获得类 jQuery API 操作 html 文档的能力，可参照其中的一个实现[https://github.com/fefit/visdom](https://github.com/fefit/visdom)，其 README 内有 API 支持的接口方法。
 

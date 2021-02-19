@@ -697,6 +697,16 @@ impl<'a> Elements<'a> {
 	pub fn is_empty(&self) -> bool {
 		self.length() == 0
 	}
+	/// pub fn `document`, a quick way to get document
+	pub fn document(&self) -> MaybeDoc {
+		for ele in self.get_ref() {
+			if let Some(doc) = ele.owner_document() {
+				return Some(doc);
+			}
+		}
+		None
+	}
+	// ------------Selector methods-------------
 	// for all combinator selectors
 	fn select_with_comb(&self, method: &str, selector: &str, comb: Combinator) -> Elements<'a> {
 		if selector.is_empty() {
