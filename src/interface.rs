@@ -1,7 +1,12 @@
 use crate::selector::{rule::Rule, Combinator, QueryProcess, Selector, SelectorSegment};
 use crate::utils::{get_class_list, retain_by_index, to_static_str};
 use crate::{constants::ATTR_CLASS, error::Error as IError};
-use std::{any::Any, cmp::Ordering, collections::VecDeque, ops::Range};
+use std::{
+	any::Any,
+	cmp::Ordering,
+	collections::VecDeque,
+	ops::{Bound, Range, RangeBounds},
+};
 use std::{collections::HashMap, error::Error};
 use std::{collections::HashSet, rc::Rc};
 
@@ -1542,14 +1547,41 @@ impl<'a> Elements<'a> {
 	/// pub fn `slice`
 	/// get elements by a range parameter
 	/// `slice(0..1)` equal to `eq(0)`, `first`
-	pub fn slice(&self, range: &Range<usize>) -> Elements<'a> {
-		let start = range.start;
-		let end = range.end;
-		let total = self.length();
-		if start >= total {
-			return Elements::new();
+	pub fn slice<T: RangeBounds<usize>>(&self, range: T) -> Elements<'a> {
+		let mut start = 0;
+		let mut end = self.length();
+		match range.start_bound() {
+			Bound::Unbounded => {
+				// start = 0
+			}
+			Bound::Included(&cur_start) => {
+				if cur_start < end {
+					start = cur_start;
+				} else {
+					// empty
+					return Elements::new();
+				}
+			}
+			_ => {
+				// start bound not have exclude
+			}
+		};
+		match range.end_bound() {
+			Bound::Unbounded => {
+				// end = total
+			}
+			Bound::Excluded(&cur_end) => {
+				if cur_end < end {
+					end = cur_end;
+				}
+			}
+			Bound::Included(&cur_end) => {
+				let cur_end = cur_end + 1;
+				if cur_end < end {
+					end = cur_end;
+				}
+			}
 		}
-		let end = if end <= total { end } else { total };
 		let mut result = Elements::with_capacity(end - start);
 		let eles = self.get_ref();
 		for ele in &eles[start..end] {
