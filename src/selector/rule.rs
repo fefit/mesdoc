@@ -291,6 +291,7 @@ impl Rule {
 				name,
 				data: hash_data,
 				chars,
+				..
 			} = item;
 			if !name.is_empty() {
 				let index = indexs.entry(name).or_insert(0);

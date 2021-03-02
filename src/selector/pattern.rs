@@ -28,6 +28,7 @@ pub type MatchedData = HashMap<&'static str, &'static str>;
 #[derive(Debug, Default, Clone)]
 pub struct Matched {
 	pub chars: Vec<char>,
+	pub ignore_chars: Option<usize>,
 	pub name: &'static str,
 	pub data: MatchedData,
 }
@@ -109,16 +110,33 @@ impl Pattern for Identity {
 			}
 			return None;
 		}
+		// allow translate character '\': fix issue #2
+		let mut is_in_translate = false;
+		let mut ignore_chars = 0;
 		for &c in chars {
-			if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-				result.push(c);
+			if !is_in_translate {
+				if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+					result.push(c);
+				} else if c == '\\' {
+					is_in_translate = true;
+					ignore_chars += 1;
+				} else {
+					break;
+				}
 			} else {
-				break;
+				result.push(c);
+				is_in_translate = false;
 			}
 		}
+		let ignore_chars = if ignore_chars > 0 {
+			Some(ignore_chars)
+		} else {
+			None
+		};
 		Some(Matched {
 			chars: result,
 			name,
+			ignore_chars,
 			..Default::default()
 		})
 	}
@@ -279,6 +297,7 @@ impl Pattern for Nth {
 				name: "nth",
 				data,
 				chars: matched_chars,
+				ignore_chars: None,
 			});
 		}
 		None
@@ -402,6 +421,7 @@ impl<'a> Pattern for RegExp<'a> {
 				chars: result,
 				name: "regexp",
 				data,
+				ignore_chars: None,
 			});
 		}
 		None
@@ -498,7 +518,7 @@ pub fn exec(queues: &[Box<dyn Pattern>], chars: &[char]) -> (Vec<Matched>, usize
 	let mut matched_num: usize = 0;
 	for item in queues {
 		if let Some(matched) = item.matched(&chars[start_index..]) {
-			start_index += matched.chars.len();
+			start_index += matched.chars.len() + matched.ignore_chars.unwrap_or(0);
 			matched_num += 1;
 			result.push(matched);
 		} else {
