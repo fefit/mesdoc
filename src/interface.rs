@@ -1186,6 +1186,7 @@ impl<'a> Elements<'a> {
 					if !query.is_empty() {
 						let mut is_empty = false;
 						let mut group = Elements::select(group.as_ref().unwrap_or(self), &query[0], None);
+
 						for rules in &query[1..] {
 							group = Elements::select(&group, rules, None);
 							if group.is_empty() {
@@ -1753,20 +1754,6 @@ impl<'a> Elements<'a> {
 		}
 		result
 	}
-	// find a ele and then remove it
-	fn find_out(elements: &mut Elements<'a>, item: &BoxDynElement) -> Option<BoxDynElement<'a>> {
-		let mut find_index: Option<usize> = None;
-		for (index, ele) in elements.get_ref().iter().enumerate() {
-			if ele.is(item) {
-				find_index = Some(index);
-				break;
-			}
-		}
-		if let Some(index) = find_index {
-			return Some(elements.get_mut_ref().remove(index));
-		}
-		None
-	}
 	// select one rule
 	// the rule must not in cache
 	fn select_by_rule(
@@ -1788,17 +1775,27 @@ impl<'a> Elements<'a> {
 					let childs = ele.children();
 					if !childs.is_empty() {
 						// apply rule
-						let mut matched_childs = rule.apply(&childs, matched);
+						let matched_childs = rule.apply(&childs, matched);
+						let matched_childs = matched_childs.get_ref();
+						let total_matched = matched_childs.len();
+						let mut cmp_index = 0;
 						for child in childs.get_ref() {
-							let matched = Elements::find_out(&mut matched_childs, child);
-							let is_matched = matched.is_some();
+							let is_matched = if cmp_index < total_matched {
+								let cmp_child = &matched_childs[cmp_index];
+								if child.is(&cmp_child) {
+									cmp_index += 1;
+									true
+								} else {
+									false
+								}
+							} else {
+								false
+							};
 							let sub_childs = child.children();
 							if !sub_childs.is_empty() {
 								// add has finded
 								if is_matched {
-									result
-										.get_mut_ref()
-										.push(matched.expect("Has test is_some"));
+									result.get_mut_ref().push(child.cloned());
 								}
 								// search sub child
 								let cur = Elements::with_node(child);
@@ -1808,9 +1805,7 @@ impl<'a> Elements<'a> {
 								}
 							} else if is_matched {
 								// move the matched ele out from cur
-								result
-									.get_mut_ref()
-									.push(matched.expect("Has test is_some"));
+								result.get_mut_ref().push(child.cloned());
 							}
 						}
 					}
