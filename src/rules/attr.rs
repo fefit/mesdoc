@@ -1,7 +1,9 @@
 #![allow(clippy::or_fun_call)]
+
 use crate::interface::{Elements, IAttrValue};
 use crate::selector::rule::RuleMatchedData;
 use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
+
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule = RuleDefItem(
 		"attr",
@@ -67,7 +69,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 			} else {
 				Box::new(|val: Option<IAttrValue>| val.is_some())
 			};
-			let mut result = Elements::with_capacity(eles.length() / 2);
+			let mut result = Elements::with_capacity(5);
 			for node in eles.get_ref() {
 				let cur_value = node.get_attribute(attr_key);
 				if handle(cur_value) {

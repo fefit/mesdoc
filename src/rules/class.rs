@@ -11,7 +11,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		Box::new(|eles: &Elements, params: &RuleMatchedData| -> Elements {
 			let class_name =
 				Rule::param(&params, "identity").expect("The 'class' selector is not correct");
-			let mut result = Elements::with_capacity(eles.length() / 2);
+			let mut result = Elements::with_capacity(5);
 			for node in eles.get_ref() {
 				if let Some(IAttrValue::Value(names, _)) = node.get_attribute("class") {
 					let class_list = get_class_list(&names);

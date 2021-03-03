@@ -600,6 +600,7 @@ impl<'a> Elements<'a> {
 			nodes: vec![ele.cloned()],
 		}
 	}
+
 	pub(crate) fn push(&mut self, ele: BoxDynElement<'a>) {
 		self.get_mut_ref().push(ele);
 	}
@@ -1809,6 +1810,27 @@ impl<'a> Elements<'a> {
 							}
 						}
 					}
+					// let child_nodes = ele.child_nodes();
+					// for node in child_nodes {
+					// 	if matches!(node.node_type(), INodeType::Element) {
+					// 		let ele = node
+					// 			.typed()
+					// 			.into_element()
+					// 			.expect("Call typed for element node");
+					// 		let has_sub_child = !ele.child_nodes().is_empty();
+					// 		let eles = Elements::with_node_own(ele);
+					// 		let matched_eles = rule.apply(&eles, matched);
+					// 		if !matched_eles.is_empty() {
+					// 			result.get_mut_ref().extend(matched_eles);
+					// 		}
+					// 		if has_sub_child {
+					// 			let sub_matched = Elements::select_by_rule(&eles, rule_item, comb);
+					// 			if !sub_matched.is_empty() {
+					// 				result.get_mut_ref().extend(sub_matched);
+					// 			}
+					// 		}
+					// 	}
+					// }
 				}
 			}
 			Children => {
