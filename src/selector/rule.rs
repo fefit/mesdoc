@@ -14,7 +14,7 @@ pub type RuleMatchedData = HashMap<SavedDataKey, &'static str>;
 pub type Handle =
 	Box<dyn (for<'a, 'r> Fn(&'a Elements<'r>, &'a RuleMatchedData) -> Elements<'r>) + Send + Sync>;
 
-pub type AliasRule = Box<dyn (Fn(&[Matched]) -> &'static str) + Send + Sync>;
+pub type AliasRule = Box<dyn (Fn(&RuleMatchedData) -> &'static str) + Send + Sync>;
 
 #[derive(Default)]
 pub struct Rule {
@@ -32,7 +32,7 @@ impl fmt::Debug for Rule {
 		f.write_str(format!("Rule{{ queues: {:?} }}", self.queues).as_str())
 	}
 }
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct SavedDataKey(&'static str, usize, &'static str);
 pub type DataKey = (&'static str, usize);
 
@@ -269,16 +269,15 @@ impl Rule {
 			None
 		}
 	}
-	pub fn apply<'a, 'r>(&self, eles: &'a Elements<'r>, matched: &[Matched]) -> Elements<'r> {
+	pub fn apply<'a, 'r>(&self, eles: &'a Elements<'r>, params: &RuleMatchedData) -> Elements<'r> {
 		if let Some(alias) = &self.alias {
-			let rule = alias(matched);
+			let rule = alias(params);
 			eles.filter(rule)
 		} else {
 			let handle = self
       .handle
       .as_ref()
       .expect("The rule's handle must set before call `exec`,you should use `set_params` to set the handle.");
-			let params = self.data(matched);
 			handle(eles, &params)
 		}
 	}
@@ -326,11 +325,8 @@ impl Rule {
 		params.get(&v.into()).copied()
 	}
 	// add use cache to matched data
-	pub fn use_cache(matched: &mut Vec<Matched>) {
-		matched.push(Matched {
-			name: USE_CACHE_DATAKEY.0,
-			..Default::default()
-		});
+	pub fn use_cache(params: &mut RuleMatchedData) {
+		params.insert(USE_CACHE_DATAKEY.into(), "1");
 	}
 	// check if use cache
 	pub fn is_use_cache(params: &RuleMatchedData) -> bool {

@@ -1763,7 +1763,7 @@ impl<'a> Elements<'a> {
 		comb: Option<&Combinator>,
 	) -> Elements<'a> {
 		let cur_comb = comb.unwrap_or(&rule_item.2);
-		let (rule, matched, ..) = rule_item;
+		let (rule, rule_data, ..) = rule_item;
 		let mut result = Elements::with_capacity(5);
 		use Combinator::*;
 		match cur_comb {
@@ -1776,7 +1776,7 @@ impl<'a> Elements<'a> {
 					let childs = ele.children();
 					if !childs.is_empty() {
 						// apply rule
-						let matched_childs = rule.apply(&childs, matched);
+						let matched_childs = rule.apply(&childs, rule_data);
 						let matched_childs = matched_childs.get_ref();
 						let total_matched = matched_childs.len();
 						let mut cmp_index = 0;
@@ -1818,8 +1818,8 @@ impl<'a> Elements<'a> {
 					// 			.into_element()
 					// 			.expect("Call typed for element node");
 					// 		let has_sub_child = !ele.child_nodes().is_empty();
-					// 		let eles = Elements::with_node_own(ele);
-					// 		let matched_eles = rule.apply(&eles, matched);
+					// 		let eles = Elements::with_node(&ele);
+					// 		let matched_eles = rule.apply(&eles, rule_data);
 					// 		if !matched_eles.is_empty() {
 					// 			result.get_mut_ref().extend(matched_eles);
 					// 		}
@@ -1837,7 +1837,7 @@ impl<'a> Elements<'a> {
 				// because elements is unique, so the children is unique too
 				for ele in elements.get_ref() {
 					let childs = ele.children();
-					let match_childs = rule.apply(&childs, matched);
+					let match_childs = rule.apply(&childs, rule_data);
 					if !match_childs.is_empty() {
 						result.get_mut_ref().extend(match_childs);
 					}
@@ -1848,7 +1848,7 @@ impl<'a> Elements<'a> {
 				for ele in elements.get_ref() {
 					if let Some(parent) = &ele.parent() {
 						let plist = Elements::with_node(parent);
-						let matched = rule.apply(&plist, matched);
+						let matched = rule.apply(&plist, rule_data);
 						if !matched.is_empty() {
 							result.get_mut_ref().extend(matched);
 						}
@@ -1859,7 +1859,7 @@ impl<'a> Elements<'a> {
 				for ele in elements.get_ref() {
 					if let Some(parent) = &ele.parent() {
 						let plist = Elements::with_node(parent);
-						let matched = rule.apply(&plist, matched);
+						let matched = rule.apply(&plist, rule_data);
 						if !matched.is_empty() {
 							result.get_mut_ref().extend(matched);
 						}
@@ -1879,7 +1879,7 @@ impl<'a> Elements<'a> {
 				let uniques = elements.unique_sibling_first();
 				for ele in uniques.get_ref() {
 					let nexts = ele.next_element_siblings();
-					let matched_nexts = rule.apply(&nexts, matched);
+					let matched_nexts = rule.apply(&nexts, rule_data);
 					if !matched_nexts.is_empty() {
 						result.get_mut_ref().extend(matched_nexts);
 					}
@@ -1894,7 +1894,7 @@ impl<'a> Elements<'a> {
 					}
 				}
 				if !nexts.is_empty() {
-					result = rule.apply(&nexts, matched);
+					result = rule.apply(&nexts, rule_data);
 				}
 			}
 			PrevAll => {
@@ -1902,7 +1902,7 @@ impl<'a> Elements<'a> {
 				let uniques = elements.unique_sibling_last();
 				for ele in uniques.get_ref() {
 					let nexts = ele.previous_element_siblings();
-					result.get_mut_ref().extend(rule.apply(&nexts, matched));
+					result.get_mut_ref().extend(rule.apply(&nexts, rule_data));
 				}
 			}
 			Prev => {
@@ -1914,7 +1914,7 @@ impl<'a> Elements<'a> {
 					}
 				}
 				if !prevs.is_empty() {
-					result = rule.apply(&prevs, matched);
+					result = rule.apply(&prevs, rule_data);
 				}
 			}
 			Siblings => {
@@ -1927,12 +1927,14 @@ impl<'a> Elements<'a> {
 						} else {
 							ele.children()
 						};
-						result.get_mut_ref().extend(rule.apply(&eles, matched));
+						result.get_mut_ref().extend(rule.apply(&eles, rule_data));
 					}
 				} else {
 					for ele in elements.get_ref() {
 						let siblings = ele.siblings();
-						result.get_mut_ref().extend(rule.apply(&siblings, matched));
+						result
+							.get_mut_ref()
+							.extend(rule.apply(&siblings, rule_data));
 					}
 					// not unique, need sort and unique
 					result.sort_and_unique();
@@ -1940,7 +1942,7 @@ impl<'a> Elements<'a> {
 			}
 			Chain => {
 				// just filter
-				result = rule.apply(&elements, matched);
+				result = rule.apply(&elements, rule_data);
 			}
 		};
 		result
@@ -1955,12 +1957,12 @@ impl<'a> Elements<'a> {
 		let comb = comb.unwrap_or(&first_rule.2);
 		let mut elements = if first_rule.0.in_cache && matches!(comb, Combinator::ChildrenAll) {
 			// set use cache data
-			let (rule, matched, ..) = first_rule;
+			let (rule, rule_data, ..) = first_rule;
 			// clone matched data
-			let mut matched = matched.clone();
+			let mut rule_data = rule_data.clone();
 			// add use cache
-			Rule::use_cache(&mut matched);
-			let cached = rule.apply(&elements, &matched);
+			Rule::use_cache(&mut rule_data);
+			let cached = rule.apply(&elements, &rule_data);
 			let count = cached.length();
 			if count > 0 {
 				let mut result = Elements::with_capacity(count);
