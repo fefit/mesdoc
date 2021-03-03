@@ -11,7 +11,7 @@ use std::{
 	sync::{Arc, Mutex},
 };
 
-use self::rule::RuleMatchedData;
+use self::rule::Matcher;
 
 lazy_static! {
 	static ref SPLITTER: Mutex<Rule> = Mutex::new(Rule::from(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
@@ -69,14 +69,14 @@ impl Combinator {
 	}
 }
 
-pub type SelectorSegment = (Arc<Rule>, RuleMatchedData, Combinator);
-#[derive(Debug, Default, Clone)]
+pub type SelectorSegment = (Arc<Rule>, Matcher, Combinator);
+#[derive(Default)]
 pub struct QueryProcess {
 	pub should_in: Option<SelectorGroupsItem>,
 	pub query: SelectorGroupsItem,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Default)]
 pub struct Selector {
 	pub process: Vec<QueryProcess>,
 }
@@ -163,7 +163,7 @@ impl Selector {
 							// push to selector
 							Selector::add_group_item(
 								&mut groups,
-								(Arc::clone(r), r.data(&matched), comb),
+								(Arc::clone(r), r.make(&matched), comb),
 								is_new_item,
 							);
 							finded = true;
@@ -180,7 +180,7 @@ impl Selector {
 							matched.extend(nested_matched);
 							Selector::add_group_item(
 								&mut groups,
-								(Arc::clone(r), r.data(&matched), comb),
+								(Arc::clone(r), r.make(&matched), comb),
 								is_new_item,
 							);
 							finded = true;
@@ -304,7 +304,7 @@ impl Selector {
 			*all_rule = rules.get("all").map(|r| Arc::clone(r));
 		}
 		let cur_rule = Arc::clone(all_rule.as_ref().expect("All rule must add to rules"));
-		(cur_rule, RuleMatchedData::default(), comb)
+		(cur_rule, cur_rule.make(&[]), comb)
 	}
 	// build a selector from a segment
 	pub fn from_segment(segment: SelectorSegment) -> Self {

@@ -1,23 +1,19 @@
-use crate::interface::Elements;
-use crate::selector::rule::RuleMatchedData;
-use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
+use crate::interface::BoxDynElement;
+use crate::selector::rule::{Matcher, MatcherData, MatcherHandle, Rule, RuleDefItem, RuleItem};
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule = RuleDefItem(
 		"name",
 		"{identity}",
 		100,
 		vec![("identity", 0)],
-		Box::new(|eles: &Elements, params: &RuleMatchedData| -> Elements {
-			let name = Rule::param(&params, "identity")
-				.expect("The 'name' selector must have a tag name")
-				.to_ascii_uppercase();
-			let mut result = Elements::with_capacity(5);
-			for node in eles.get_ref() {
-				if node.tag_name() == name {
-					result.push(node.cloned());
-				}
-			}
-			result
+		Box::new(|data: MatcherData| Matcher {
+			handle: MatcherHandle::One(Box::new(|ele: &BoxDynElement| {
+				let name = Rule::param(&data, "identity")
+					.expect("The 'name' selector must have a tag name")
+					.to_ascii_uppercase();
+				return ele.tag_name() == name;
+			})),
+			data,
 		}),
 	);
 	rules.push(rule.into());

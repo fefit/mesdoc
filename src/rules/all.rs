@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use crate::interface::Elements;
-use crate::selector::rule::{RuleDefItem, RuleItem};
+use crate::selector::rule::{Matcher, MatcherHandle, RuleDefItem, RuleItem};
 /// selector: `*`
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule: RuleItem = RuleDefItem(
@@ -7,7 +9,10 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		"*",
 		0,
 		vec![],
-		Box::new(|eles: &Elements, _| -> Elements { eles.cloned() }),
+		Box::new(|_| Matcher {
+			handle: MatcherHandle::All(Box::new(|eles: &Elements| eles.cloned())),
+			data: HashMap::new(),
+		}),
 	)
 	.into();
 	rules.push(rule);

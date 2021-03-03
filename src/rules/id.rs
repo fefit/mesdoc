@@ -1,5 +1,4 @@
-use crate::selector::rule::RuleMatchedData;
-use crate::selector::rule::{Rule, RuleItem};
+use crate::selector::rule::{Matcher, MatcherData, MatcherHandle, Rule, RuleItem};
 use crate::{constants::USE_CACHE_DATAKEY, interface::Elements};
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule: RuleItem = RuleItem {
@@ -9,10 +8,10 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 			priority: 10000,
 			in_cache: true,
 			fields: vec![("identity", 0), USE_CACHE_DATAKEY],
-			handle: Some(Box::new(
-				|eles: &Elements, params: &RuleMatchedData| -> Elements {
-					let id = Rule::param(&params, "identity").expect("The 'id' selector is not correct");
-					let use_cache = Rule::is_use_cache(&params);
+			handle: Some(Box::new(|data: MatcherData| Matcher {
+				handle: MatcherHandle::All(Box::new(|eles: &Elements| {
+					let id = Rule::param(&data, "identity").expect("The 'id' selector is not correct");
+					let use_cache = Rule::is_use_cache(&data);
 					let mut result = Elements::with_capacity(1);
 					if !eles.is_empty() {
 						let first_ele = eles
@@ -37,8 +36,9 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 						}
 					}
 					result
-				},
-			)),
+				})),
+				data,
+			})),
 			..Default::default()
 		},
 	};
