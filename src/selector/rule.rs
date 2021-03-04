@@ -9,8 +9,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 lazy_static! {
-	pub static ref RULES: Mutex<HashMap<&'static str, Arc<Rule>>> =
-		Mutex::new(HashMap::with_capacity(20));
+	pub static ref RULES: Mutex<Vec<(&'static str, Arc<Rule>)>> = Mutex::new(Vec::with_capacity(20));
 }
 // matcher handles
 pub type MatchAllHandle = Box<dyn (for<'a, 'r> Fn(&'a Elements<'r>, Option<bool>) -> Elements<'r>)>;
@@ -58,6 +57,10 @@ impl Matcher {
 	pub fn one(&self, ele: &BoxDynElement, use_cache: Option<bool>) -> bool {
 		let handle = self.one_handle.as_ref().unwrap();
 		handle(ele, use_cache)
+	}
+	// get all handle
+	pub fn get_all_handle(&self) -> &MatchAllHandle {
+		self.all_handle.as_ref().expect("All handle is None")
 	}
 }
 
@@ -313,26 +316,17 @@ impl Rule {
 			None
 		}
 	}
-	// pub fn apply<'a, 'r>(&self, eles: &'a Elements<'r>, params: &MatcherData) -> Elements<'r> {
-	// 	if let Some(alias) = &self.alias {
-	// 		let rule = alias(params);
-	// 		eles.filter(rule)
-	// 	} else {
-	// 		let handle = self
-	//     .handle
-	//     .as_ref()
-	//     .expect("The rule's handle must set before call `exec`,you should use `set_params` to set the handle.");
-	// 		handle(eles, &params)
-	// 	}
-	// }
-
+	/// make a matcher
 	pub fn make(&self, data: &[Matched]) -> Matcher {
 		let handle = &self.handle;
 		let data = self.data(data);
 		handle(data)
 	}
-
+	/// make a matcher by alias
 	pub fn make_alias(selector: &'static str) -> Matcher {
+		// if parse the selector string into Selector and save to the closure
+		// the mutex rules will trigger a dead lock
+		// so there give up, just lost some performance
 		Matcher {
 			all_handle: Some(Box::new(move |eles: &Elements, _| eles.filter(selector))),
 			one_handle: None,
@@ -430,7 +424,7 @@ pub fn add_rules(rules: Vec<RuleItem>) {
 	} in rules
 	{
 		let cur_rule = Rule::add(context, rule);
-		all_rules.insert(name, Arc::new(cur_rule));
+		all_rules.push((name, Arc::new(cur_rule)));
 	}
 }
 

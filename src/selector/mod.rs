@@ -6,7 +6,6 @@ use lazy_static::lazy_static;
 use pattern::{exec, Matched};
 use rule::{Rule, RULES};
 use std::{
-	collections::HashMap,
 	str::FromStr,
 	sync::{Arc, Mutex},
 };
@@ -210,6 +209,7 @@ impl Selector {
 			// optimize groups to query process
 			selector.optimize(groups, use_lookup);
 		}
+
 		Ok(selector)
 	}
 	// add a selector group, splitted by ','
@@ -302,7 +302,12 @@ impl Selector {
 		let mut all_rule = ALL_RULE.lock().unwrap();
 		if all_rule.is_none() {
 			let rules = RULES.lock().unwrap();
-			*all_rule = rules.get("all").map(|r| Arc::clone(r));
+			for (name, rule) in &rules[..] {
+				if *name == "all" {
+					*all_rule = Some(Arc::clone(rule));
+					break;
+				}
+			}
 		}
 		let cur_rule = Arc::clone(all_rule.as_ref().expect("All rule must add to rules"));
 		let matcher = cur_rule.make(&[]);
@@ -322,7 +327,7 @@ impl Selector {
 	pub fn parse_until(
 		chars: &[char],
 		until: &[BoxDynPattern],
-		rules: &HashMap<&str, Arc<Rule>>,
+		rules: &[(&str, Arc<Rule>)],
 		splitter: &[BoxDynPattern],
 		level: usize,
 	) -> (usize, Vec<Matched>) {

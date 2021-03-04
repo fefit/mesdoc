@@ -586,11 +586,11 @@ fn pseudo_contains(rules: &mut Vec<RuleItem>) {
 				.or_else(|| Rule::param(&data, ("regexp", 0, "3")))
 				.expect("The :contains selector must have a content");
 			Matcher {
-				all_handle: Some(Box::new(move |eles: &Elements, _| {
+				one_handle: Some(Box::new(move |ele: &BoxDynElement, _| {
 					if search.is_empty() {
-						return eles.cloned();
+						return true;
 					}
-					eles.filter_by(|_, ele| ele.text().contains(search))
+					ele.text().contains(search)
 				})),
 				..Default::default()
 			}
