@@ -13,12 +13,13 @@ use regex::Regex;
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, fmt::Debug, usize};
 
-pub type FromParamsFn =
-	Box<dyn Fn(&str, &str) -> Result<Box<dyn Pattern>, String> + Send + 'static>;
+pub type FromParamsFn = Box<dyn Fn(&str, &str) -> Result<BoxDynPattern, String> + Send + 'static>;
 lazy_static! {
 	static ref REGEXS: Mutex<HashMap<&'static str, Arc<Regex>>> = Mutex::new(HashMap::new());
 	static ref PATTERNS: Mutex<HashMap<&'static str, FromParamsFn>> = Mutex::new(HashMap::new());
 }
+
+pub type BoxDynPattern = Box<dyn Pattern>;
 
 fn no_implemented(name: &str) -> ! {
 	panic!("No supported Pattern type '{}' found", name);
@@ -40,7 +41,7 @@ pub trait Pattern: Send + Sync + Debug {
 		false
 	}
 	// get a pattern trait object
-	fn from_params(s: &str, _p: &str) -> Result<Box<dyn Pattern>, String>
+	fn from_params(s: &str, _p: &str) -> Result<BoxDynPattern, String>
 	where
 		Self: Sized + Send + 'static,
 	{
@@ -141,7 +142,7 @@ impl Pattern for Identity {
 		})
 	}
 	// from_str
-	fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+	fn from_params(s: &str, p: &str) -> Result<BoxDynPattern, String> {
 		if s == "?" {
 			Ok(Box::new(Identity(true)))
 		} else {
@@ -173,7 +174,7 @@ impl Pattern for AttrKey {
 		None
 	}
 	// from_params
-	fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+	fn from_params(s: &str, p: &str) -> Result<BoxDynPattern, String> {
 		check_params_return(&[s, p], || Box::new(AttrKey::default()))
 	}
 }
@@ -200,13 +201,13 @@ impl Pattern for Spaces {
 		}
 		None
 	}
-	fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+	fn from_params(s: &str, p: &str) -> Result<BoxDynPattern, String> {
 		let mut min_count = 0;
 		if !p.is_empty() {
 			return Err(format!("Spaces not support param '{}'", p));
 		}
 		if !s.trim().is_empty() {
-			let rule: [Box<dyn Pattern>; 3] = [Box::new('('), Box::new(Index::default()), Box::new(')')];
+			let rule: [BoxDynPattern; 3] = [Box::new('('), Box::new(Index::default()), Box::new(')')];
 			let chars: Vec<char> = s.chars().collect();
 			let (result, _, _, match_all) = exec(&rule, &chars);
 			if !match_all {
@@ -244,7 +245,7 @@ impl Pattern for Index {
 		}
 		None
 	}
-	fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+	fn from_params(s: &str, p: &str) -> Result<BoxDynPattern, String> {
 		check_params_return(&[s, p], || Box::new(Index::default()))
 	}
 }
@@ -303,7 +304,7 @@ impl Pattern for Nth {
 		None
 	}
 	// from params to pattern
-	fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+	fn from_params(s: &str, p: &str) -> Result<BoxDynPattern, String> {
 		check_params_return(&[s, p], || Box::new(Nth::default()))
 	}
 }
@@ -426,7 +427,7 @@ impl<'a> Pattern for RegExp<'a> {
 		}
 		None
 	}
-	fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+	fn from_params(s: &str, p: &str) -> Result<BoxDynPattern, String> {
 		let mut cache = true;
 		if !s.is_empty() {
 			if s == "!" {
@@ -475,7 +476,7 @@ impl Pattern for NestedSelector {
 		None
 	}
 	// from params to pattern
-	fn from_params(s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+	fn from_params(s: &str, p: &str) -> Result<BoxDynPattern, String> {
 		check_params_return(&[s, p], || Box::new(NestedSelector::default()))
 	}
 	// set to be nested
@@ -504,7 +505,7 @@ pub(crate) fn init() {
 	add_pattern("selector", Box::new(NestedSelector::from_params));
 }
 
-pub fn to_pattern(name: &str, s: &str, p: &str) -> Result<Box<dyn Pattern>, String> {
+pub fn to_pattern(name: &str, s: &str, p: &str) -> Result<BoxDynPattern, String> {
 	let patterns = PATTERNS.lock().unwrap();
 	if let Some(cb) = patterns.get(name) {
 		return cb(s, p);
@@ -512,7 +513,7 @@ pub fn to_pattern(name: &str, s: &str, p: &str) -> Result<Box<dyn Pattern>, Stri
 	no_implemented(name);
 }
 
-pub fn exec(queues: &[Box<dyn Pattern>], chars: &[char]) -> (Vec<Matched>, usize, usize, bool) {
+pub fn exec(queues: &[BoxDynPattern], chars: &[char]) -> (Vec<Matched>, usize, usize, bool) {
 	let mut start_index = 0;
 	let mut result: Vec<Matched> = Vec::with_capacity(queues.len());
 	let mut matched_num: usize = 0;
@@ -528,10 +529,10 @@ pub fn exec(queues: &[Box<dyn Pattern>], chars: &[char]) -> (Vec<Matched>, usize
 	(result, start_index, matched_num, start_index == chars.len())
 }
 
-pub fn check_params_return<F: Fn() -> Box<dyn Pattern>>(
+pub fn check_params_return<F: Fn() -> BoxDynPattern>(
 	params: &[&str],
 	cb: F,
-) -> Result<Box<dyn Pattern>, String> {
+) -> Result<BoxDynPattern, String> {
 	for &p in params {
 		if !p.is_empty() {
 			let all_params = params.iter().fold(String::from(""), |mut r, &s| {

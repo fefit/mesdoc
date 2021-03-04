@@ -1,8 +1,6 @@
 use crate::interface::{BoxDynElement, Elements, INodeType};
 use crate::selector::pattern::Nth;
-use crate::selector::rule::{
-	Matcher, MatcherData, MatcherHandle, Rule, RuleAliasItem, RuleDefItem, RuleItem,
-};
+use crate::selector::rule::{Matcher, MatcherData, Rule, RuleDefItem, RuleItem};
 use std::cmp::Ordering;
 use std::{collections::HashMap, ops::Range};
 
@@ -18,8 +16,8 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|data: MatcherData| Matcher {
-			handle: MatcherHandle::All(Box::new(|eles: &Elements| {
+		Box::new(|_: MatcherData| Matcher {
+			all_handle: Some(Box::new(|eles: &Elements, _| {
 				let mut result = Elements::with_capacity(DEF_NODES_LEN);
 				for ele in eles.get_ref() {
 					let child_nodes = ele.child_nodes();
@@ -43,7 +41,7 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 				}
 				result
 			})),
-			data,
+			..Default::default()
 		}),
 	);
 	rules.push(rule.into());
@@ -196,33 +194,35 @@ fn make_asc_or_desc_nth_child(selector: &'static str, asc: bool) -> RuleDefItem 
 		selector,
 		PRIORITY,
 		vec![("nth", 0)],
-		Box::new(move |data: MatcherData| Matcher {
-			handle: MatcherHandle::All(Box::new(|eles: &Elements| {
-				let n = Rule::param(&data, ("nth", 0, "n"));
-				let index = Rule::param(&data, ("nth", 0, "index"));
-				let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
-				group_siblings_then_done(
-					eles,
-					|total: usize| Some(Nth::get_allowed_indexs(n, index, total)),
-					|data: &mut SiblingsNodeData| {
-						let allow_indexs = data.allow_indexs.as_ref().expect("allow indexs must set");
-						if allow_indexs.is_empty() {
-							return;
-						}
-						let childs = data
-							.parent
-							.as_ref()
-							.expect("parent must set in callback")
-							.children();
-						let finded = handle(&eles, &data.range, &allow_indexs, &childs);
-						if !finded.is_empty() {
-							result.get_mut_ref().extend(finded);
-						}
-					},
-				);
-				result
-			})),
-			data,
+		Box::new(move |data: MatcherData| {
+			let n = Rule::param(&data, ("nth", 0, "n"));
+			let index = Rule::param(&data, ("nth", 0, "index"));
+			Matcher {
+				all_handle: Some(Box::new(move |eles: &Elements, _| {
+					let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
+					group_siblings_then_done(
+						eles,
+						|total: usize| Some(Nth::get_allowed_indexs(n, index, total)),
+						|data: &mut SiblingsNodeData| {
+							let allow_indexs = data.allow_indexs.as_ref().expect("allow indexs must set");
+							if allow_indexs.is_empty() {
+								return;
+							}
+							let childs = data
+								.parent
+								.as_ref()
+								.expect("parent must set in callback")
+								.children();
+							let finded = handle(&eles, &data.range, &allow_indexs, &childs);
+							if !finded.is_empty() {
+								result.get_mut_ref().extend(finded);
+							}
+						},
+					);
+					result
+				})),
+				..Default::default()
+			}
 		}),
 	)
 }
@@ -243,12 +243,12 @@ fn pseudo_first_child(rules: &mut Vec<RuleItem>) {
 	// first-child,alias for ':nth-child(1)'
 	let selector = ":first-child";
 	let name = selector;
-	let rule = RuleAliasItem(
+	let rule = RuleDefItem(
 		name,
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|_| ":nth-child(1)"),
+		Box::new(|_| Rule::make_alias(":nth-child(1)")),
 	);
 	rules.push(rule.into());
 }
@@ -257,12 +257,12 @@ fn pseudo_last_child(rules: &mut Vec<RuleItem>) {
 	// last-child,alias for ':nth-last-child(1)'
 	let selector = ":last-child";
 	let name = selector;
-	let rule = RuleAliasItem(
+	let rule = RuleDefItem(
 		name,
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|_| ":nth-last-child(1)"),
+		Box::new(|_| Rule::make_alias(":nth-last-child(1)")),
 	);
 	rules.push(rule.into());
 }
@@ -341,51 +341,53 @@ fn make_asc_or_desc_nth_of_type(selector: &'static str, asc: bool) -> RuleDefIte
 		selector,
 		PRIORITY,
 		vec![("nth", 0)],
-		Box::new(move |data: MatcherData| Matcher {
-			handle: MatcherHandle::All(Box::new(|eles: &Elements| {
-				let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
-				let n = Rule::param(&data, ("nth", 0, "n"));
-				let index = Rule::param(&data, ("nth", 0, "index"));
-				group_siblings_then_done(
-					eles,
-					|total: usize| Some(Nth::get_allowed_indexs(n, index, total)),
-					|data: &mut SiblingsNodeData| {
-						let allow_indexs = data
-							.allow_indexs
-							.as_ref()
-							.expect("Nth allow indexs must have");
-						// return if allow_indexs is empty
-						if allow_indexs.is_empty() {
-							return;
-						}
-						// childs
-						let childs = data
-							.parent
-							.as_ref()
-							.expect("parent must set in callback")
-							.children();
-						let mut names: NameCounterHashMap = HashMap::with_capacity(5);
-						let range = &data.range;
-						let eles = eles.get_ref();
-						let siblings = &eles[range.start..range.end];
-						let mut node_indexs: Vec<usize> = Vec::with_capacity(childs.length());
-						// loop to get allowed child's node indexs
-						if asc {
-							for child in childs.get_ref() {
-								get_allowed_name_ele(child, &mut names, allow_indexs, &mut node_indexs);
+		Box::new(move |data: MatcherData| {
+			let n = Rule::param(&data, ("nth", 0, "n"));
+			let index = Rule::param(&data, ("nth", 0, "index"));
+			Matcher {
+				all_handle: Some(Box::new(move |eles: &Elements, _| {
+					let mut result: Elements = Elements::with_capacity(DEF_NODES_LEN);
+					group_siblings_then_done(
+						eles,
+						|total: usize| Some(Nth::get_allowed_indexs(n, index, total)),
+						|data: &mut SiblingsNodeData| {
+							let allow_indexs = data
+								.allow_indexs
+								.as_ref()
+								.expect("Nth allow indexs must have");
+							// return if allow_indexs is empty
+							if allow_indexs.is_empty() {
+								return;
 							}
-						} else {
-							for child in childs.get_ref().iter().rev() {
-								get_allowed_name_ele(child, &mut names, allow_indexs, &mut node_indexs);
+							// childs
+							let childs = data
+								.parent
+								.as_ref()
+								.expect("parent must set in callback")
+								.children();
+							let mut names: NameCounterHashMap = HashMap::with_capacity(5);
+							let range = &data.range;
+							let eles = eles.get_ref();
+							let siblings = &eles[range.start..range.end];
+							let mut node_indexs: Vec<usize> = Vec::with_capacity(childs.length());
+							// loop to get allowed child's node indexs
+							if asc {
+								for child in childs.get_ref() {
+									get_allowed_name_ele(child, &mut names, allow_indexs, &mut node_indexs);
+								}
+							} else {
+								for child in childs.get_ref().iter().rev() {
+									get_allowed_name_ele(child, &mut names, allow_indexs, &mut node_indexs);
+								}
+								node_indexs.reverse();
 							}
-							node_indexs.reverse();
-						}
-						collect_avail_name_eles(&mut node_indexs, siblings, result.get_mut_ref());
-					},
-				);
-				result
-			})),
-			data,
+							collect_avail_name_eles(&mut node_indexs, siblings, result.get_mut_ref());
+						},
+					);
+					result
+				})),
+				..Default::default()
+			}
 		}),
 	)
 }
@@ -409,12 +411,12 @@ fn pseudo_first_of_type(rules: &mut Vec<RuleItem>) {
 	// first of type, alias for 'nth-of-type(1)'
 	let selector = ":first-of-type";
 	let name = selector;
-	let rule = RuleAliasItem(
+	let rule = RuleDefItem(
 		name,
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|_| ":nth-of-type(1)"),
+		Box::new(|_| Rule::make_alias(":nth-of-type(1)")),
 	);
 	rules.push(rule.into());
 }
@@ -424,12 +426,12 @@ fn pseudo_last_of_type(rules: &mut Vec<RuleItem>) {
 	// last of type, alias for 'nth-last-of-type(1)'
 	let selector = ":last-of-type";
 	let name = selector;
-	let rule = RuleAliasItem(
+	let rule = RuleDefItem(
 		name,
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|_| ":nth-last-of-type(1)"),
+		Box::new(|_| Rule::make_alias(":nth-last-of-type(1)")),
 	);
 	rules.push(rule.into());
 }
@@ -443,8 +445,8 @@ fn pseudo_only_child(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |data| Matcher {
-			handle: MatcherHandle::All(Box::new(|eles: &Elements| {
+		Box::new(move |_| Matcher {
+			all_handle: Some(Box::new(|eles: &Elements, _| {
 				let mut result = Elements::with_capacity(DEF_NODES_LEN);
 				let mut prev_parent: Option<BoxDynElement> = None;
 				for ele in eles.get_ref() {
@@ -472,7 +474,7 @@ fn pseudo_only_child(rules: &mut Vec<RuleItem>) {
 				}
 				result
 			})),
-			data,
+			..Default::default()
 		}),
 	);
 	rules.push(rule.into());
@@ -487,8 +489,8 @@ fn pseudo_only_of_type(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(move |data| Matcher {
-			handle: MatcherHandle::All(Box::new(|eles: &Elements| {
+		Box::new(move |_| Matcher {
+			all_handle: Some(Box::new(|eles: &Elements, _| {
 				let mut result = Elements::with_capacity(DEF_NODES_LEN);
 				group_siblings_then_done(
 					eles,
@@ -542,7 +544,7 @@ fn pseudo_only_of_type(rules: &mut Vec<RuleItem>) {
 				);
 				result
 			})),
-			data,
+			..Default::default()
 		}),
 	);
 	rules.push(rule.into());
@@ -557,12 +559,12 @@ fn pseudo_not(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![("selector", 0)],
-		Box::new(|data: MatcherData| Matcher {
-			handle: MatcherHandle::All(Box::new(|eles: &Elements| {
-				let selector = Rule::param(&data, "selector").expect("selector param must have.");
-				eles.not(selector)
-			})),
-			data,
+		Box::new(|data: MatcherData| {
+			let selector = Rule::param(&data, "selector").expect("selector param must have.");
+			Matcher {
+				all_handle: Some(Box::new(move |eles: &Elements, _| eles.not(selector))),
+				..Default::default()
+			}
 		}),
 	);
 	rules.push(rule.into());
@@ -578,18 +580,20 @@ fn pseudo_contains(rules: &mut Vec<RuleItem>) {
 		selector,
 		PRIORITY,
 		vec![("regexp", 0)],
-		Box::new(|data: MatcherData| Matcher {
-			handle: MatcherHandle::All(Box::new(|eles: &Elements| {
-				let search = Rule::param(&data, ("regexp", 0, "1"))
-					.or_else(|| Rule::param(&data, ("regexp", 0, "2")))
-					.or_else(|| Rule::param(&data, ("regexp", 0, "3")))
-					.expect("The :contains selector must have a content");
-				if search.is_empty() {
-					return eles.cloned();
-				}
-				eles.filter_by(|_, ele| ele.text().contains(search))
-			})),
-			data,
+		Box::new(|data: MatcherData| {
+			let search = Rule::param(&data, ("regexp", 0, "1"))
+				.or_else(|| Rule::param(&data, ("regexp", 0, "2")))
+				.or_else(|| Rule::param(&data, ("regexp", 0, "3")))
+				.expect("The :contains selector must have a content");
+			Matcher {
+				all_handle: Some(Box::new(move |eles: &Elements, _| {
+					if search.is_empty() {
+						return eles.cloned();
+					}
+					eles.filter_by(|_, ele| ele.text().contains(search))
+				})),
+				..Default::default()
+			}
 		}),
 	);
 	rules.push(rule.into());
@@ -601,12 +605,12 @@ fn pseudo_contains(rules: &mut Vec<RuleItem>) {
 fn pseudo_alias_header(rules: &mut Vec<RuleItem>) {
 	let selector = ":header";
 	let name = selector;
-	let rule = RuleAliasItem(
+	let rule = RuleDefItem(
 		name,
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|_| "h1,h2,h3,h4,h5,h6"),
+		Box::new(|_| Rule::make_alias("h1,h2,h3,h4,h5,h6")),
 	);
 	rules.push(rule.into());
 }
@@ -615,12 +619,12 @@ fn pseudo_alias_header(rules: &mut Vec<RuleItem>) {
 fn pseudo_alias_input(rules: &mut Vec<RuleItem>) {
 	let selector = ":input";
 	let name = selector;
-	let rule = RuleAliasItem(
+	let rule = RuleDefItem(
 		name,
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|_| "input,select,textarea,button"),
+		Box::new(|_| Rule::make_alias("input,select,textarea,button")),
 	);
 	rules.push(rule.into());
 }
@@ -629,12 +633,12 @@ fn pseudo_alias_input(rules: &mut Vec<RuleItem>) {
 fn pseudo_alias_submit(rules: &mut Vec<RuleItem>) {
 	let selector = ":submit";
 	let name = selector;
-	let rule = RuleAliasItem(
+	let rule = RuleDefItem(
 		name,
 		selector,
 		PRIORITY,
 		vec![],
-		Box::new(|_| "input[type='submit'],button[type='submit']"),
+		Box::new(|_| Rule::make_alias("input[type='submit'],button[type='submit']")),
 	);
 	rules.push(rule.into());
 }

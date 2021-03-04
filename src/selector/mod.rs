@@ -3,7 +3,7 @@ pub mod rule;
 
 use crate::error::Error;
 use lazy_static::lazy_static;
-use pattern::{exec, Matched, Pattern};
+use pattern::{exec, Matched};
 use rule::{Rule, RULES};
 use std::{
 	collections::HashMap,
@@ -11,10 +11,11 @@ use std::{
 	sync::{Arc, Mutex},
 };
 
-use self::rule::Matcher;
+use self::{pattern::BoxDynPattern, rule::Matcher};
 
 lazy_static! {
-	static ref SPLITTER: Mutex<Rule> = Mutex::new(Rule::from(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
+	static ref SPLITTER: Mutex<Vec<BoxDynPattern>> =
+		Mutex::new(Rule::get_queues(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
 	static ref ALL_RULE: Mutex<Option<Arc<Rule>>> = Mutex::new(None);
 }
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -70,13 +71,13 @@ impl Combinator {
 }
 
 pub type SelectorSegment = (Arc<Rule>, Matcher, Combinator);
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct QueryProcess {
 	pub should_in: Option<SelectorGroupsItem>,
 	pub query: SelectorGroupsItem,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Selector {
 	pub process: Vec<QueryProcess>,
 }
@@ -105,7 +106,7 @@ impl Selector {
 			while index < total_len {
 				let next_chars = &chars[index..];
 				// first check if combinator
-				if let Some((matched, len, _)) = splitter.exec(next_chars) {
+				if let Some((matched, len, _)) = Rule::exec_queues(&splitter, next_chars) {
 					let op = matched[0].chars.iter().collect::<String>();
 					let op = op.trim();
 					if prev_in == PrevInSelector::Splitter {
@@ -304,7 +305,8 @@ impl Selector {
 			*all_rule = rules.get("all").map(|r| Arc::clone(r));
 		}
 		let cur_rule = Arc::clone(all_rule.as_ref().expect("All rule must add to rules"));
-		(cur_rule, cur_rule.make(&[]), comb)
+		let matcher = cur_rule.make(&[]);
+		(cur_rule, matcher, comb)
 	}
 	// build a selector from a segment
 	pub fn from_segment(segment: SelectorSegment) -> Self {
@@ -319,9 +321,9 @@ impl Selector {
 	// parse until
 	pub fn parse_until(
 		chars: &[char],
-		until: &[Box<dyn Pattern>],
+		until: &[BoxDynPattern],
 		rules: &HashMap<&str, Arc<Rule>>,
-		splitter: &Rule,
+		splitter: &[BoxDynPattern],
 		level: usize,
 	) -> (usize, Vec<Matched>) {
 		let mut index = 0;
@@ -329,7 +331,7 @@ impl Selector {
 		let mut matched: Vec<Matched> = Vec::with_capacity(until.len() + 1);
 		while index < total {
 			let next_chars = &chars[index..];
-			if let Some((_, len, _)) = splitter.exec(next_chars) {
+			if let Some((_, len, _)) = Rule::exec_queues(splitter, next_chars) {
 				index += len;
 				continue;
 			}
