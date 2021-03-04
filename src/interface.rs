@@ -1,4 +1,4 @@
-use crate::selector::{Combinator, QueryProcess, Selector, SelectorSegment};
+use crate::selector::{rule::MatchOneHandle, Combinator, QueryProcess, Selector, SelectorSegment};
 use crate::utils::{get_class_list, retain_by_index, to_static_str};
 use crate::{constants::ATTR_CLASS, error::Error as IError};
 use std::{
@@ -1776,63 +1776,95 @@ impl<'a> Elements<'a> {
 			ChildrenAll => {
 				// unique if have ancestor and descendant relation elements
 				let uniques = elements.unique_parents();
+				//
+				let handle = if let Some(handle) = &matcher.one_handle {
+					fn loop_handle(ele: &BoxDynElement, result: &mut Elements, handle: &MatchOneHandle) {
+						let child_nodes = ele.child_nodes();
+						for node in child_nodes {
+							if matches!(node.node_type(), INodeType::Element) {
+								let ele = node
+									.typed()
+									.into_element()
+									.expect("Call typed for element node");
+								let has_sub_child = !ele.child_nodes().is_empty();
+								if has_sub_child {
+									if handle(&ele, None) {
+										result.get_mut_ref().push(ele.cloned());
+									}
+									loop_handle(&ele, &mut result, handle);
+								} else {
+									// push the element
+									if handle(&ele, None) {
+										result.get_mut_ref().push(ele);
+									}
+								}
+							}
+						}
+					};
+					loop_handle
+				} else {
+				};
 				// depth first search, keep the appear order
 				for ele in uniques.get_ref() {
-					// get children
-					// let childs = ele.children();
-					// if !childs.is_empty() {
-					// 	// apply rule
-					// 	let matched_childs = matcher.apply(&childs, None);
-					// 	let matched_childs = matched_childs.get_ref();
-					// 	let total_matched = matched_childs.len();
-					// 	let mut cmp_index = 0;
-					// 	for child in childs.get_ref() {
-					// 		let is_matched = if cmp_index < total_matched {
-					// 			let cmp_child = &matched_childs[cmp_index];
-					// 			if child.is(&cmp_child) {
-					// 				cmp_index += 1;
-					// 				true
-					// 			} else {
-					// 				false
-					// 			}
-					// 		} else {
-					// 			false
-					// 		};
-					// 		let sub_childs = child.children();
-					// 		if !sub_childs.is_empty() {
-					// 			// add has finded
-					// 			if is_matched {
-					// 				result.get_mut_ref().push(child.cloned());
-					// 			}
-					// 			// search sub child
-					// 			let cur = Elements::with_node(child);
-					// 			let sub_matched = Elements::select_by_rule(&cur, rule_item, comb);
-					// 			if !sub_matched.is_empty() {
-					// 				result.get_mut_ref().extend(sub_matched);
-					// 			}
-					// 		} else if is_matched {
-					// 			// move the matched ele out from cur
-					// 			result.get_mut_ref().push(child.cloned());
-					// 		}
-					// 	}
-					// }
-					let handle = matcher.one_handle.as_ref().unwrap();
-					let child_nodes = ele.child_nodes();
-					for node in child_nodes {
-						if matches!(node.node_type(), INodeType::Element) {
-							let ele = node
-								.typed()
-								.into_element()
-								.expect("Call typed for element node");
-							let has_sub_child = !ele.child_nodes().is_empty();
-							if handle(&ele, None) {
-								result.get_mut_ref().push(ele.cloned());
+					if let Some(handle) = &matcher.one_handle {
+						let child_nodes = ele.child_nodes();
+						for node in child_nodes {
+							if matches!(node.node_type(), INodeType::Element) {
+								let ele = node
+									.typed()
+									.into_element()
+									.expect("Call typed for element node");
+								let has_sub_child = !ele.child_nodes().is_empty();
+								if handle(&ele, None) {
+									if has_sub_child {
+										result.get_mut_ref().push(ele.cloned());
+									} else {
+									}
+								} else if has_sub_child {
+									let eles = Elements::with_node_own(ele);
+									let sub_matched = Elements::select_by_rule(&eles, rule_item, comb);
+									if !sub_matched.is_empty() {
+										result.get_mut_ref().extend(sub_matched);
+									}
+								}
 							}
-							if has_sub_child {
-								let eles = Elements::with_node_own(ele);
-								let sub_matched = Elements::select_by_rule(&eles, rule_item, comb);
-								if !sub_matched.is_empty() {
-									result.get_mut_ref().extend(sub_matched);
+						}
+					} else {
+						// get children
+						let childs = ele.children();
+						if !childs.is_empty() {
+							// apply rule
+							let matched_childs = matcher.apply(&childs, None);
+							let matched_childs = matched_childs.get_ref();
+							let total_matched = matched_childs.len();
+							let mut cmp_index = 0;
+							for child in childs.get_ref() {
+								let is_matched = if cmp_index < total_matched {
+									let cmp_child = &matched_childs[cmp_index];
+									if child.is(&cmp_child) {
+										cmp_index += 1;
+										true
+									} else {
+										false
+									}
+								} else {
+									false
+								};
+								let sub_childs = child.children();
+								if !sub_childs.is_empty() {
+									// add has finded
+									if is_matched {
+										result.get_mut_ref().push(child.cloned());
+									}
+									// search sub child
+									let cur = Elements::with_node(child);
+									let sub_matched = Elements::select_by_rule(&cur, rule_item, comb);
+									if !sub_matched.is_empty() {
+										result.get_mut_ref().extend(sub_matched);
+									}
+								} else if is_matched {
+									// move the matched ele out from cur
+									result.get_mut_ref().push(child.cloned());
 								}
 							}
 						}
