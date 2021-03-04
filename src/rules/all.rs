@@ -1,5 +1,5 @@
 use crate::interface::Elements;
-use crate::selector::rule::{RuleDefItem, RuleItem};
+use crate::selector::rule::{Matcher, RuleDefItem, RuleItem};
 /// selector: `*`
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule: RuleItem = RuleDefItem(
@@ -7,7 +7,10 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		"*",
 		0,
 		vec![],
-		Box::new(|nodes: &Elements, _| -> Elements { nodes.cloned() }),
+		Box::new(|_| Matcher {
+			all_handle: Some(Box::new(|eles: &Elements, _| eles.cloned())),
+			..Default::default()
+		}),
 	)
 	.into();
 	rules.push(rule);

@@ -3,16 +3,18 @@ pub mod rule;
 
 use crate::error::Error;
 use lazy_static::lazy_static;
-use pattern::{exec, Matched, Pattern};
+use pattern::{exec, Matched};
 use rule::{Rule, RULES};
 use std::{
-	collections::HashMap,
 	str::FromStr,
 	sync::{Arc, Mutex},
 };
 
+use self::{pattern::BoxDynPattern, rule::Matcher};
+
 lazy_static! {
-	static ref SPLITTER: Mutex<Rule> = Mutex::new(Rule::from(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
+	static ref SPLITTER: Mutex<Vec<BoxDynPattern>> =
+		Mutex::new(Rule::get_queues(r##"{regexp#(\s*[>,~+]\s*|\s+)#}"##));
 	static ref ALL_RULE: Mutex<Option<Arc<Rule>>> = Mutex::new(None);
 }
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -67,14 +69,14 @@ impl Combinator {
 	}
 }
 
-pub type SelectorSegment = (Arc<Rule>, Vec<Matched>, Combinator);
-#[derive(Debug, Default)]
+pub type SelectorSegment = (Arc<Rule>, Matcher, Combinator);
+#[derive(Default, Debug)]
 pub struct QueryProcess {
 	pub should_in: Option<SelectorGroupsItem>,
 	pub query: SelectorGroupsItem,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default, Debug)]
 pub struct Selector {
 	pub process: Vec<QueryProcess>,
 }
@@ -103,7 +105,7 @@ impl Selector {
 			while index < total_len {
 				let next_chars = &chars[index..];
 				// first check if combinator
-				if let Some((matched, len, _)) = splitter.exec(next_chars) {
+				if let Some((matched, len, _)) = Rule::exec_queues(&splitter, next_chars) {
 					let op = matched[0].chars.iter().collect::<String>();
 					let op = op.trim();
 					if prev_in == PrevInSelector::Splitter {
@@ -159,7 +161,11 @@ impl Selector {
 						let queues = &r.queues;
 						if queue_num == queues.len() {
 							// push to selector
-							Selector::add_group_item(&mut groups, (Arc::clone(r), matched, comb), is_new_item);
+							Selector::add_group_item(
+								&mut groups,
+								(Arc::clone(r), r.make(&matched), comb),
+								is_new_item,
+							);
 							finded = true;
 						} else if queues[queue_num].is_nested() {
 							// nested selector
@@ -172,7 +178,11 @@ impl Selector {
 							);
 							index += len;
 							matched.extend(nested_matched);
-							Selector::add_group_item(&mut groups, (Arc::clone(r), matched, comb), is_new_item);
+							Selector::add_group_item(
+								&mut groups,
+								(Arc::clone(r), r.make(&matched), comb),
+								is_new_item,
+							);
 							finded = true;
 						}
 						break;
@@ -199,6 +209,7 @@ impl Selector {
 			// optimize groups to query process
 			selector.optimize(groups, use_lookup);
 		}
+
 		Ok(selector)
 	}
 	// add a selector group, splitted by ','
@@ -291,17 +302,16 @@ impl Selector {
 		let mut all_rule = ALL_RULE.lock().unwrap();
 		if all_rule.is_none() {
 			let rules = RULES.lock().unwrap();
-			*all_rule = rules.get("all").map(|r| Arc::clone(r));
+			for (name, rule) in &rules[..] {
+				if *name == "all" {
+					*all_rule = Some(Arc::clone(rule));
+					break;
+				}
+			}
 		}
 		let cur_rule = Arc::clone(all_rule.as_ref().expect("All rule must add to rules"));
-		(
-			cur_rule,
-			vec![Matched {
-				chars: vec!['*'],
-				..Default::default()
-			}],
-			comb,
-		)
+		let matcher = cur_rule.make(&[]);
+		(cur_rule, matcher, comb)
 	}
 	// build a selector from a segment
 	pub fn from_segment(segment: SelectorSegment) -> Self {
@@ -316,9 +326,9 @@ impl Selector {
 	// parse until
 	pub fn parse_until(
 		chars: &[char],
-		until: &[Box<dyn Pattern>],
-		rules: &HashMap<&str, Arc<Rule>>,
-		splitter: &Rule,
+		until: &[BoxDynPattern],
+		rules: &[(&str, Arc<Rule>)],
+		splitter: &[BoxDynPattern],
 		level: usize,
 	) -> (usize, Vec<Matched>) {
 		let mut index = 0;
@@ -326,7 +336,7 @@ impl Selector {
 		let mut matched: Vec<Matched> = Vec::with_capacity(until.len() + 1);
 		while index < total {
 			let next_chars = &chars[index..];
-			if let Some((_, len, _)) = splitter.exec(next_chars) {
+			if let Some((_, len, _)) = Rule::exec_queues(splitter, next_chars) {
 				index += len;
 				continue;
 			}

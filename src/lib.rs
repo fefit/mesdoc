@@ -10,6 +10,9 @@ pub mod interface;
 pub mod error;
 // utils for crate
 pub mod utils;
+// constants
+pub(crate) mod constants;
+
 // export init, must execute `init()` first
 pub fn init() {
 	INIT_LIB.call_once(|| {
