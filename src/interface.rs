@@ -1,4 +1,7 @@
-use crate::selector::{rule::Rule, Combinator, QueryProcess, Selector, SelectorSegment};
+use crate::selector::{
+	rule::{MatchAllHandle, MatchOneHandle},
+	Combinator, QueryProcess, Selector, SelectorSegment,
+};
 use crate::utils::{get_class_list, retain_by_index, to_static_str};
 use crate::{constants::ATTR_CLASS, error::Error as IError};
 use std::{
@@ -582,7 +585,7 @@ pub trait IElementTrait: INodeTrait {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum FilterType {
+pub(crate) enum FilterType {
 	Filter,
 	Not,
 	Is,
@@ -661,7 +664,7 @@ impl<'a> Elements<'a> {
 	}
 
 	// get mut ref
-	pub fn get_mut_ref(&mut self) -> &mut Vec<BoxDynElement<'a>> {
+	pub(crate) fn get_mut_ref(&mut self) -> &mut Vec<BoxDynElement<'a>> {
 		&mut self.nodes
 	}
 	// pub fn `for_each`
@@ -994,7 +997,9 @@ impl<'a> Elements<'a> {
 			let sib_selector = selector.parse::<Selector>();
 			if let Ok(sib_selector) = sib_selector {
 				// clone the selector to a child selector
-				child_selector = sib_selector.clone();
+				child_selector = selector
+					.parse::<Selector>()
+					.expect("The selector has detected");
 				child_selector.head_combinator(child_comb);
 				// use siblings selector
 				siblings_selector = sib_selector;
@@ -1223,7 +1228,7 @@ impl<'a> Elements<'a> {
 	// Not      | merge all elmements which matched each process, then exclude them all.
 	// Is       | once matched a process, break
 	// IsAll    | merge all elmements which matched each process, check if the matched equal to self
-	fn filter_type_handle(
+	pub(crate) fn filter_type_handle(
 		&self,
 		selector: &Selector,
 		filter_type: &FilterType,
@@ -1763,123 +1768,185 @@ impl<'a> Elements<'a> {
 		comb: Option<&Combinator>,
 	) -> Elements<'a> {
 		let cur_comb = comb.unwrap_or(&rule_item.2);
-		let (rule, matched, ..) = rule_item;
+		let (_, matcher, ..) = rule_item;
 		let mut result = Elements::with_capacity(5);
 		use Combinator::*;
 		match cur_comb {
 			ChildrenAll => {
 				// unique if have ancestor and descendant relation elements
 				let uniques = elements.unique_parents();
-				// depth first search, keep the appear order
-				for ele in uniques.get_ref() {
-					// get children
-					let childs = ele.children();
-					if !childs.is_empty() {
-						// apply rule
-						let matched_childs = rule.apply(&childs, matched);
-						let matched_childs = matched_childs.get_ref();
-						let total_matched = matched_childs.len();
-						let mut cmp_index = 0;
-						for child in childs.get_ref() {
-							let is_matched = if cmp_index < total_matched {
-								let cmp_child = &matched_childs[cmp_index];
-								if child.is(&cmp_child) {
-									cmp_index += 1;
-									true
-								} else {
-									false
+				// check if one handle, match one by one
+				if let Some(handle) = &matcher.one_handle {
+					let exec = |ele: &BoxDynElement, result: &mut Elements| {
+						fn loop_handle(ele: &BoxDynElement, result: &mut Elements, handle: &MatchOneHandle) {
+							let child_nodes = ele.child_nodes();
+							for node in child_nodes {
+								if matches!(node.node_type(), INodeType::Element) {
+									let child_ele = node
+										.typed()
+										.into_element()
+										.expect("Call typed for element node");
+									let has_sub_child = child_ele.child_nodes_length() > 0;
+									if has_sub_child {
+										if handle(&child_ele, None) {
+											result.get_mut_ref().push(child_ele.cloned());
+										}
+										loop_handle(&child_ele, result, handle);
+									} else {
+										// push the element
+										if handle(&child_ele, None) {
+											result.get_mut_ref().push(child_ele);
+										}
+									}
 								}
-							} else {
-								false
-							};
-							let sub_childs = child.children();
-							if !sub_childs.is_empty() {
-								// add has finded
-								if is_matched {
-									result.get_mut_ref().push(child.cloned());
-								}
-								// search sub child
-								let cur = Elements::with_node(child);
-								let sub_matched = Elements::select_by_rule(&cur, rule_item, comb);
-								if !sub_matched.is_empty() {
-									result.get_mut_ref().extend(sub_matched);
-								}
-							} else if is_matched {
-								// move the matched ele out from cur
-								result.get_mut_ref().push(child.cloned());
 							}
 						}
+						loop_handle(ele, result, handle)
+					};
+					// depth first search, keep the appear order
+					for ele in uniques.get_ref() {
+						exec(ele, &mut result);
 					}
-					// let child_nodes = ele.child_nodes();
-					// for node in child_nodes {
-					// 	if matches!(node.node_type(), INodeType::Element) {
-					// 		let ele = node
-					// 			.typed()
-					// 			.into_element()
-					// 			.expect("Call typed for element node");
-					// 		let has_sub_child = !ele.child_nodes().is_empty();
-					// 		let eles = Elements::with_node_own(ele);
-					// 		let matched_eles = rule.apply(&eles, matched);
-					// 		if !matched_eles.is_empty() {
-					// 			result.get_mut_ref().extend(matched_eles);
-					// 		}
-					// 		if has_sub_child {
-					// 			let sub_matched = Elements::select_by_rule(&eles, rule_item, comb);
-					// 			if !sub_matched.is_empty() {
-					// 				result.get_mut_ref().extend(sub_matched);
-					// 			}
-					// 		}
-					// 	}
-					// }
-				}
+				} else {
+					// if all handle, check all children
+					let handle = matcher.get_all_handle();
+					let exec = |ele: &BoxDynElement, result: &mut Elements| {
+						// get children
+						fn loop_handle(ele: &BoxDynElement, result: &mut Elements, handle: &MatchAllHandle) {
+							let childs = ele.children();
+							if !childs.is_empty() {
+								// apply rule
+								let matched_childs = handle(&childs, None);
+								let matched_childs = matched_childs.get_ref();
+								let total_matched = matched_childs.len();
+								let mut cmp_index = 0;
+								for child in childs.get_ref() {
+									if cmp_index < total_matched {
+										let cmp_child = &matched_childs[cmp_index];
+										if child.is(&cmp_child) {
+											cmp_index += 1;
+											result.get_mut_ref().push(child.cloned());
+										}
+									}
+									// loop for sub childs
+									loop_handle(child, result, handle);
+								}
+							}
+						}
+						loop_handle(ele, result, handle)
+					};
+					// depth first search, keep the appear order
+					for ele in uniques.get_ref() {
+						exec(ele, &mut result);
+					}
+				};
 			}
 			Children => {
 				// because elements is unique, so the children is unique too
-				for ele in elements.get_ref() {
-					let childs = ele.children();
-					let match_childs = rule.apply(&childs, matched);
-					if !match_childs.is_empty() {
-						result.get_mut_ref().extend(match_childs);
+				if let Some(handle) = &matcher.one_handle {
+					for ele in elements.get_ref() {
+						let child_nodes = ele.child_nodes();
+						for node in child_nodes {
+							if matches!(node.node_type(), INodeType::Element) {
+								let child_ele = node
+									.typed()
+									.into_element()
+									.expect("Call typed for element node");
+								if handle(&child_ele, None) {
+									result.get_mut_ref().push(child_ele);
+								}
+							}
+						}
+					}
+				} else {
+					let handle = matcher.get_all_handle();
+					for ele in elements.get_ref() {
+						let childs = ele.children();
+						let match_childs = handle(&childs, None);
+						if !match_childs.is_empty() {
+							result.get_mut_ref().extend(match_childs);
+						}
 					}
 				}
 			}
 			Parent => {
-				// because elements is unique, so the parent is unique too
-				for ele in elements.get_ref() {
-					if let Some(parent) = &ele.parent() {
-						let plist = Elements::with_node(parent);
-						let matched = rule.apply(&plist, matched);
-						if !matched.is_empty() {
-							result.get_mut_ref().extend(matched);
+				// elements is unique, but may be siblings
+				// so they maybe has equal parent, just keep only one
+				let uniques = elements.unique_sibling_first();
+				if let Some(handle) = &matcher.one_handle {
+					for ele in uniques.get_ref() {
+						if let Some(parent) = ele.parent() {
+							if handle(&parent, None) {
+								result.get_mut_ref().push(parent);
+							}
 						}
+					}
+				} else {
+					let handle = matcher.get_all_handle();
+					let mut parents = Elements::with_capacity(uniques.length());
+					for ele in uniques.get_ref() {
+						if let Some(parent) = ele.parent() {
+							parents.push(parent);
+						}
+					}
+					let matched_parents = handle(&parents, None);
+					if !matched_parents.is_empty() {
+						result.get_mut_ref().extend(matched_parents);
 					}
 				}
 			}
 			ParentAll => {
-				for ele in elements.get_ref() {
-					if let Some(parent) = &ele.parent() {
-						let plist = Elements::with_node(parent);
-						let matched = rule.apply(&plist, matched);
-						if !matched.is_empty() {
-							result.get_mut_ref().extend(matched);
-						}
-						if parent.parent().is_some() {
-							let ancestors = Elements::select_by_rule(&plist, rule_item, comb);
-							if !ancestors.is_empty() {
-								result.get_mut_ref().extend(ancestors);
+				if let Some(handle) = &matcher.one_handle {
+					let exec = |ele: &BoxDynElement, result: &mut Elements| {
+						fn loop_handle(ele: &BoxDynElement, result: &mut Elements, handle: &MatchOneHandle) {
+							if let Some(parent) = ele.parent() {
+								// try to find ancestor first
+								// because ancestor appear early than parent, keep the order
+								loop_handle(&parent, result, handle);
+								// check parent
+								if handle(&parent, None) {
+									result.get_mut_ref().push(parent);
+								}
 							}
 						}
+						loop_handle(ele, result, handle);
+					};
+					// loop the elements
+					for ele in elements.get_ref() {
+						exec(ele, &mut result);
+					}
+					// maybe not unique, need sort and unique
+					result.sort_and_unique();
+				} else {
+					// gather all parents
+					fn loop_handle(ele: &BoxDynElement, parents: &mut Elements) {
+						if let Some(parent) = ele.parent() {
+							// add ancestor first
+							loop_handle(&parent, parents);
+							// add parent
+							parents.push(parent);
+						}
+					}
+					let mut all_parents = Elements::with_capacity(10);
+					for ele in elements.get_ref() {
+						loop_handle(ele, &mut all_parents);
+					}
+					// unique all parents;
+					all_parents.sort_and_unique();
+					// check if matched
+					let handle = matcher.get_all_handle();
+					let matched_parents = handle(&all_parents, None);
+					if !matched_parents.is_empty() {
+						result.get_mut_ref().extend(matched_parents);
 					}
 				}
-				// maybe not unique, need sort and unique
-				result.sort_and_unique();
 			}
 			NextAll => {
 				// unique siblings just keep first
 				let uniques = elements.unique_sibling_first();
 				for ele in uniques.get_ref() {
 					let nexts = ele.next_element_siblings();
-					let matched_nexts = rule.apply(&nexts, matched);
+					let matched_nexts = matcher.apply(&nexts, None);
 					if !matched_nexts.is_empty() {
 						result.get_mut_ref().extend(matched_nexts);
 					}
@@ -1890,34 +1957,31 @@ impl<'a> Elements<'a> {
 				let mut nexts = Elements::with_capacity(elements.length());
 				for ele in elements.get_ref() {
 					if let Some(next) = ele.next_element_sibling() {
-						nexts.push(next.cloned());
+						nexts.push(next);
 					}
 				}
-				if !nexts.is_empty() {
-					result = rule.apply(&nexts, matched);
-				}
+				result = matcher.apply(&nexts, None);
 			}
 			PrevAll => {
 				// unique siblings just keep last
 				let uniques = elements.unique_sibling_last();
 				for ele in uniques.get_ref() {
 					let nexts = ele.previous_element_siblings();
-					result.get_mut_ref().extend(rule.apply(&nexts, matched));
+					result.get_mut_ref().extend(matcher.apply(&nexts, None));
 				}
 			}
 			Prev => {
 				// because elements is unique, so the prev is unique too
 				let mut prevs = Elements::with_capacity(elements.length());
 				for ele in elements.get_ref() {
-					if let Some(next) = ele.previous_element_sibling() {
-						prevs.push(next.cloned());
+					if let Some(prev) = ele.previous_element_sibling() {
+						prevs.push(prev);
 					}
 				}
-				if !prevs.is_empty() {
-					result = rule.apply(&prevs, matched);
-				}
+				result = matcher.apply(&prevs, None);
 			}
 			Siblings => {
+				// siblings
 				if elements.length() > 1000 {
 					// unique first
 					let uniques = elements.unique_all_siblings();
@@ -1927,12 +1991,12 @@ impl<'a> Elements<'a> {
 						} else {
 							ele.children()
 						};
-						result.get_mut_ref().extend(rule.apply(&eles, matched));
+						result.get_mut_ref().extend(matcher.apply(&eles, None));
 					}
 				} else {
 					for ele in elements.get_ref() {
 						let siblings = ele.siblings();
-						result.get_mut_ref().extend(rule.apply(&siblings, matched));
+						result.get_mut_ref().extend(matcher.apply(&siblings, None));
 					}
 					// not unique, need sort and unique
 					result.sort_and_unique();
@@ -1940,7 +2004,7 @@ impl<'a> Elements<'a> {
 			}
 			Chain => {
 				// just filter
-				result = rule.apply(&elements, matched);
+				result = matcher.apply(&elements, None);
 			}
 		};
 		result
@@ -1954,13 +2018,9 @@ impl<'a> Elements<'a> {
 		let first_rule = &rules[0];
 		let comb = comb.unwrap_or(&first_rule.2);
 		let mut elements = if first_rule.0.in_cache && matches!(comb, Combinator::ChildrenAll) {
-			// set use cache data
-			let (rule, matched, ..) = first_rule;
-			// clone matched data
-			let mut matched = matched.clone();
-			// add use cache
-			Rule::use_cache(&mut matched);
-			let cached = rule.apply(&elements, &matched);
+			let (_, matcher, ..) = first_rule;
+			// set use cache true
+			let cached = matcher.apply(&elements, Some(true));
 			let count = cached.length();
 			if count > 0 {
 				let mut result = Elements::with_capacity(count);

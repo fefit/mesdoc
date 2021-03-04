@@ -1,30 +1,75 @@
-use super::pattern::{self, exec, to_pattern, Matched, Pattern};
-use crate::utils::{to_static_str, vec_char_to_clean_str};
+use super::pattern::{self, exec, to_pattern, BoxDynPattern, Matched, Pattern};
 use crate::{constants::USE_CACHE_DATAKEY, interface::Elements};
+use crate::{
+	interface::BoxDynElement,
+	utils::{to_static_str, vec_char_to_clean_str},
+};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 lazy_static! {
-	pub static ref RULES: Mutex<HashMap<&'static str, Arc<Rule>>> =
-		Mutex::new(HashMap::with_capacity(20));
+	pub static ref RULES: Mutex<Vec<(&'static str, Arc<Rule>)>> = Mutex::new(Vec::with_capacity(20));
 }
-
-pub type RuleMatchedData = HashMap<SavedDataKey, &'static str>;
-pub type Handle =
-	Box<dyn (for<'a, 'r> Fn(&'a Elements<'r>, &'a RuleMatchedData) -> Elements<'r>) + Send + Sync>;
-
-pub type AliasRule = Box<dyn (Fn(&[Matched]) -> &'static str) + Send + Sync>;
+// matcher handles
+pub type MatchAllHandle = Box<dyn (for<'a, 'r> Fn(&'a Elements<'r>, Option<bool>) -> Elements<'r>)>;
+pub type MatchOneHandle = Box<dyn Fn(&BoxDynElement, Option<bool>) -> bool>;
+// matcher data
+pub type MatcherData = HashMap<SavedDataKey, &'static str>;
+// matcher factory
+pub type MatcherFactory = Box<dyn (Fn(MatcherData) -> Matcher) + Send + Sync>;
 
 #[derive(Default)]
+pub struct Matcher {
+	pub all_handle: Option<MatchAllHandle>,
+	pub one_handle: Option<MatchOneHandle>,
+}
+
+impl fmt::Debug for Matcher {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str(
+			format!(
+				"Matcher{{ all_handle: {}, one_handle: {} }}",
+				self.all_handle.is_some(),
+				self.one_handle.is_some(),
+			)
+			.as_str(),
+		)
+	}
+}
+
+impl Matcher {
+	//
+	pub fn apply<'a, 'r>(&self, eles: &'a Elements<'r>, use_cache: Option<bool>) -> Elements<'r> {
+		if let Some(handle) = &self.all_handle {
+			return handle(eles, use_cache);
+		}
+		let handle = self.one_handle.as_ref().unwrap();
+		let mut result = Elements::with_capacity(5);
+		for ele in eles.get_ref() {
+			if handle(ele, use_cache) {
+				result.push(ele.cloned());
+			}
+		}
+		result
+	}
+	// execute one handle
+	pub fn one(&self, ele: &BoxDynElement, use_cache: Option<bool>) -> bool {
+		let handle = self.one_handle.as_ref().unwrap();
+		handle(ele, use_cache)
+	}
+	// get all handle
+	pub fn get_all_handle(&self) -> &MatchAllHandle {
+		self.all_handle.as_ref().expect("All handle is None")
+	}
+}
+
 pub struct Rule {
 	pub in_cache: bool,
 	pub priority: u32,
-	pub no_depth: bool,
 	pub(crate) queues: Vec<Box<dyn Pattern>>,
 	pub fields: Vec<DataKey>,
-	pub handle: Option<Handle>,
-	pub alias: Option<AliasRule>,
+	pub handle: MatcherFactory,
 }
 
 impl fmt::Debug for Rule {
@@ -32,7 +77,7 @@ impl fmt::Debug for Rule {
 		f.write_str(format!("Rule{{ queues: {:?} }}", self.queues).as_str())
 	}
 }
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct SavedDataKey(&'static str, usize, &'static str);
 pub type DataKey = (&'static str, usize);
 
@@ -108,9 +153,10 @@ impl MatchedStore {
 	}
 }
 
-impl From<&str> for Rule {
-	/// generate a rule from string.
-	fn from(content: &str) -> Self {
+// Rule methods
+impl Rule {
+	// translate string to queues
+	pub(crate) fn get_queues(content: &str) -> Vec<Box<dyn Pattern>> {
 		const ANCHOR_CHAR: char = '\0';
 		const START_CHAR: char = '{';
 		const END_CHAR: char = '}';
@@ -252,38 +298,43 @@ impl From<&str> for Rule {
 				queues.push(Box::new(raw_chars));
 			}
 		}
-		Rule {
-			queues,
-			..Default::default()
-		}
+		queues
 	}
-}
 
-// Rule methods
-impl Rule {
 	pub fn exec(&self, chars: &[char]) -> Option<(Vec<Matched>, usize, usize)> {
-		let (result, matched_len, matched_queue_item, _) = exec(&self.queues, chars);
+		Rule::exec_queues(&self.queues, chars)
+	}
+
+	pub fn exec_queues(
+		queues: &[BoxDynPattern],
+		chars: &[char],
+	) -> Option<(Vec<Matched>, usize, usize)> {
+		let (result, matched_len, matched_queue_item, _) = exec(&queues, chars);
 		if matched_len > 0 {
 			Some((result, matched_len, matched_queue_item))
 		} else {
 			None
 		}
 	}
-	pub fn apply<'a, 'r>(&self, eles: &'a Elements<'r>, matched: &[Matched]) -> Elements<'r> {
-		if let Some(alias) = &self.alias {
-			let rule = alias(matched);
-			eles.filter(rule)
-		} else {
-			let handle = self
-      .handle
-      .as_ref()
-      .expect("The rule's handle must set before call `exec`,you should use `set_params` to set the handle.");
-			let params = self.data(matched);
-			handle(eles, &params)
+	/// make a matcher
+	pub fn make(&self, data: &[Matched]) -> Matcher {
+		let handle = &self.handle;
+		let data = self.data(data);
+		handle(data)
+	}
+	/// make a matcher by alias
+	pub fn make_alias(selector: &'static str) -> Matcher {
+		// if parse the selector string into Selector and save to the closure
+		// the mutex rules will trigger a dead lock
+		// so there give up, just lost some performance
+		Matcher {
+			all_handle: Some(Box::new(move |eles: &Elements, _| eles.filter(selector))),
+			one_handle: None,
 		}
 	}
-	pub fn data(&self, data: &[Matched]) -> RuleMatchedData {
-		let mut result: RuleMatchedData = HashMap::with_capacity(5);
+
+	pub fn data(&self, data: &[Matched]) -> MatcherData {
+		let mut result: MatcherData = HashMap::with_capacity(5);
 		let mut indexs = HashMap::with_capacity(5);
 		let fields = &self.fields;
 		for item in data.iter() {
@@ -317,23 +368,19 @@ impl Rule {
 	}
 	// add a rule
 	pub fn add(context: &str, mut rule: Rule) -> Self {
-		let Rule { queues, .. } = context.into();
-		rule.queues = queues;
+		rule.queues = Rule::get_queues(context);
 		rule
 	}
 	// quick method to get param
-	pub fn param<T: Into<SavedDataKey>>(params: &RuleMatchedData, v: T) -> Option<&str> {
+	pub fn param<T: Into<SavedDataKey>>(params: &MatcherData, v: T) -> Option<&'static str> {
 		params.get(&v.into()).copied()
 	}
 	// add use cache to matched data
-	pub fn use_cache(matched: &mut Vec<Matched>) {
-		matched.push(Matched {
-			name: USE_CACHE_DATAKEY.0,
-			..Default::default()
-		});
+	pub fn use_cache(params: &mut MatcherData) {
+		params.insert(USE_CACHE_DATAKEY.into(), "1");
 	}
 	// check if use cache
-	pub fn is_use_cache(params: &RuleMatchedData) -> bool {
+	pub fn is_use_cache(params: &MatcherData) -> bool {
 		params.get(&USE_CACHE_DATAKEY.into()).is_some()
 	}
 }
@@ -343,14 +390,7 @@ pub struct RuleDefItem(
 	pub &'static str,
 	pub u32,
 	pub Vec<DataKey>,
-	pub Handle,
-);
-pub struct RuleAliasItem(
-	pub &'static str,
-	pub &'static str,
-	pub u32,
-	pub Vec<DataKey>,
-	pub AliasRule,
+	pub MatcherFactory,
 );
 
 pub struct RuleItem {
@@ -368,24 +408,8 @@ impl From<RuleDefItem> for RuleItem {
 				priority: item.2,
 				in_cache: false,
 				fields: item.3,
-				handle: Some(item.4),
-				..Default::default()
-			},
-		}
-	}
-}
-
-impl From<RuleAliasItem> for RuleItem {
-	fn from(item: RuleAliasItem) -> Self {
-		RuleItem {
-			name: item.0,
-			context: item.1,
-			rule: Rule {
-				priority: item.2,
-				in_cache: false,
-				fields: item.3,
-				alias: Some(item.4),
-				..Default::default()
+				handle: item.4,
+				queues: Vec::new(),
 			},
 		}
 	}
@@ -400,7 +424,7 @@ pub fn add_rules(rules: Vec<RuleItem>) {
 	} in rules
 	{
 		let cur_rule = Rule::add(context, rule);
-		all_rules.insert(name, Arc::new(cur_rule));
+		all_rules.push((name, Arc::new(cur_rule)));
 	}
 }
 
