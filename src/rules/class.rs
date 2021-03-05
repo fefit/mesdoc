@@ -11,7 +11,9 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 		PRIORITY_CLASS_SELECTOR,
 		vec![("identity", 0)],
 		Box::new(|data: MatcherData| {
+			// class name parameter
 			let class_name = Rule::param(&data, "identity").expect("The 'class' selector is not correct");
+			// matcher
 			Matcher {
 				one_handle: Some(Box::new(move |ele: &BoxDynElement, _| -> bool {
 					if let Some(IAttrValue::Value(names, _)) = ele.get_attribute("class") {

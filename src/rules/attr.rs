@@ -66,6 +66,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 							Some(IAttrValue::Value(v, _)) => attr_value != v,
 							_ => false,
 						}),
+						// equal to value
 						_ => Box::new(move |val: &Option<IAttrValue>| match val {
 							Some(IAttrValue::Value(v, _)) => v == attr_value,
 							_ => false,
@@ -73,6 +74,7 @@ pub fn init(rules: &mut Vec<RuleItem>) {
 					}
 				}
 			} else {
+				// has the attribute name
 				Box::new(|val: &Option<IAttrValue>| val.is_some())
 			};
 			Matcher {

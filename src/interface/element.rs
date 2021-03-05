@@ -1,12 +1,67 @@
-use super::{
-	BoxDynNode, BoxDynText, Elements, IAttrValue, INodeTrait, INodeType, InsertPosition, Texts,
-};
+use super::{BoxDynNode, BoxDynText, Elements, INodeTrait, INodeType, Texts};
 use crate::{constants::DEF_NODES_LEN, error::Error as IError};
 use std::error::Error;
 use std::ops::Range;
 
 pub type BoxDynElement<'a> = Box<dyn IElementTrait + 'a>;
 pub type MaybeElement<'a> = Option<BoxDynElement<'a>>;
+
+#[derive(Debug)]
+pub enum IAttrValue {
+	Value(String, Option<char>),
+	True,
+}
+
+impl IAttrValue {
+	/// pub fn `is_true`
+	pub fn is_true(&self) -> bool {
+		matches!(self, IAttrValue::True)
+	}
+	/// pub fn `is_str`
+	pub fn is_str(&self, value: &str) -> bool {
+		match self {
+			IAttrValue::Value(v, _) => v == value,
+			IAttrValue::True => false,
+		}
+	}
+	/// pub fn `to_list`
+	pub fn to_list(&self) -> Vec<&str> {
+		match self {
+			IAttrValue::Value(v, _) => v.trim().split_ascii_whitespace().collect::<Vec<&str>>(),
+			IAttrValue::True => vec![],
+		}
+	}
+}
+
+/// impl `ToString` for IAttrValue
+impl ToString for IAttrValue {
+	fn to_string(&self) -> String {
+		match self {
+			IAttrValue::Value(v, _) => v.clone(),
+			IAttrValue::True => String::new(),
+		}
+	}
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum InsertPosition {
+	BeforeBegin,
+	AfterBegin,
+	BeforeEnd,
+	AfterEnd,
+}
+
+impl InsertPosition {
+	pub fn action(&self) -> &'static str {
+		use InsertPosition::*;
+		match self {
+			BeforeBegin => "insert before",
+			AfterBegin => "prepend",
+			BeforeEnd => "append",
+			AfterEnd => "insert after",
+		}
+	}
+}
 pub trait IElementTrait: INodeTrait {
 	fn is(&self, ele: &BoxDynElement) -> bool {
 		if let Some(uuid) = self.uuid() {

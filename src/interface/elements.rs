@@ -1,4 +1,4 @@
-use super::{BoxDynElement, INodeType, MaybeDoc, Texts};
+use super::{BoxDynElement, IAttrValue, INodeType, InsertPosition, MaybeDoc, Texts};
 use crate::utils::{get_class_list, retain_by_index, to_static_str};
 use crate::{constants::ATTR_CLASS, error::Error as IError};
 use crate::{
@@ -15,63 +15,6 @@ use std::{
 	ops::{Bound, RangeBounds},
 };
 use std::{collections::HashMap, error::Error};
-
-#[derive(Debug)]
-pub enum IAttrValue {
-	Value(String, Option<char>),
-	True,
-}
-
-impl IAttrValue {
-	/// pub fn `is_true`
-	pub fn is_true(&self) -> bool {
-		matches!(self, IAttrValue::True)
-	}
-	/// pub fn `is_str`
-	pub fn is_str(&self, value: &str) -> bool {
-		match self {
-			IAttrValue::Value(v, _) => v == value,
-			IAttrValue::True => false,
-		}
-	}
-	/// pub fn `to_list`
-	pub fn to_list(&self) -> Vec<&str> {
-		match self {
-			IAttrValue::Value(v, _) => v.trim().split_ascii_whitespace().collect::<Vec<&str>>(),
-			IAttrValue::True => vec![],
-		}
-	}
-}
-
-/// impl `ToString` for IAttrValue
-impl ToString for IAttrValue {
-	fn to_string(&self) -> String {
-		match self {
-			IAttrValue::Value(v, _) => v.clone(),
-			IAttrValue::True => String::new(),
-		}
-	}
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum InsertPosition {
-	BeforeBegin,
-	AfterBegin,
-	BeforeEnd,
-	AfterEnd,
-}
-
-impl InsertPosition {
-	pub fn action(&self) -> &'static str {
-		use InsertPosition::*;
-		match self {
-			BeforeBegin => "insert before",
-			AfterBegin => "prepend",
-			BeforeEnd => "append",
-			AfterEnd => "insert after",
-		}
-	}
-}
 
 // get the ele indexs in tree
 fn get_tree_indexs(ele: &BoxDynElement) -> VecDeque<usize> {
@@ -990,12 +933,23 @@ impl<'a> Elements<'a> {
 			Next => {
 				// because elements is unique, so the next is unique too
 				let mut nexts = Elements::with_capacity(elements.length());
-				for ele in elements.get_ref() {
-					if let Some(next) = ele.next_element_sibling() {
-						nexts.push(next);
+				if let Some(handle) = &matcher.one_handle {
+					for ele in elements.get_ref() {
+						if let Some(next) = ele.next_element_sibling() {
+							if handle(&next, None) {
+								nexts.push(next);
+							}
+						}
 					}
+					result = nexts;
+				} else {
+					for ele in elements.get_ref() {
+						if let Some(next) = ele.next_element_sibling() {
+							nexts.push(next);
+						}
+					}
+					result = matcher.apply(&nexts, None);
 				}
-				result = matcher.apply(&nexts, None);
 			}
 			PrevAll => {
 				// unique siblings just keep last
@@ -1008,12 +962,23 @@ impl<'a> Elements<'a> {
 			Prev => {
 				// because elements is unique, so the prev is unique too
 				let mut prevs = Elements::with_capacity(elements.length());
-				for ele in elements.get_ref() {
-					if let Some(prev) = ele.previous_element_sibling() {
-						prevs.push(prev);
+				if let Some(handle) = &matcher.one_handle {
+					for ele in elements.get_ref() {
+						if let Some(prev) = ele.previous_element_sibling() {
+							if handle(&prev, None) {
+								prevs.push(prev);
+							}
+						}
 					}
+					result = prevs;
+				} else {
+					for ele in elements.get_ref() {
+						if let Some(prev) = ele.previous_element_sibling() {
+							prevs.push(prev);
+						}
+					}
+					result = matcher.apply(&prevs, None);
 				}
-				result = matcher.apply(&prevs, None);
 			}
 			Siblings => {
 				// siblings
