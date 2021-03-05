@@ -1,7 +1,7 @@
 use super::{
 	BoxDynNode, BoxDynText, Elements, IAttrValue, INodeTrait, INodeType, InsertPosition, Texts,
 };
-use crate::error::Error as IError;
+use crate::{constants::DEF_NODES_LEN, error::Error as IError};
 use std::error::Error;
 use std::ops::Range;
 
@@ -209,7 +209,7 @@ pub trait IElementTrait: INodeTrait {
 		let childs = self.children();
 		let count = childs.length();
 		if count > 0 {
-			let mut result = Elements::with_capacity(5);
+			let mut result = Elements::with_capacity(DEF_NODES_LEN);
 			let all_nodes = result.get_mut_ref();
 			for c in childs.get_ref() {
 				all_nodes.push(c.cloned());

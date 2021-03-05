@@ -1,10 +1,12 @@
+use crate::constants::{NAME_SELECTOR_NAME, PRIORITY_NAME_SELECTOR};
 use crate::interface::BoxDynElement;
 use crate::selector::rule::{Matcher, MatcherData, Rule, RuleDefItem, RuleItem};
+
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule = RuleDefItem(
-		"name",
+		NAME_SELECTOR_NAME,
 		"{identity}",
-		100,
+		PRIORITY_NAME_SELECTOR,
 		vec![("identity", 0)],
 		Box::new(|data: MatcherData| {
 			let name = Rule::param(&data, "identity")

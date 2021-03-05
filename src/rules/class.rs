@@ -1,12 +1,14 @@
+use crate::constants::{NAME_SELECTOR_CLASS, PRIORITY_CLASS_SELECTOR};
 use crate::interface::{BoxDynElement, IAttrValue};
 use crate::selector::rule::{Matcher, MatcherData};
 use crate::selector::rule::{Rule, RuleDefItem, RuleItem};
 use crate::utils::get_class_list;
+
 pub fn init(rules: &mut Vec<RuleItem>) {
 	let rule = RuleDefItem(
-		"class",
+		NAME_SELECTOR_CLASS,
 		".{identity}",
-		1000,
+		PRIORITY_CLASS_SELECTOR,
 		vec![("identity", 0)],
 		Box::new(|data: MatcherData| {
 			let class_name = Rule::param(&data, "identity").expect("The 'class' selector is not correct");

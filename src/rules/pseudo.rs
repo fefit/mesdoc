@@ -1,11 +1,12 @@
+use crate::constants::{DEF_NODES_LEN, PRIORITY_PSEUDO_SELECTOR};
 use crate::interface::{BoxDynElement, Elements, INodeType};
 use crate::selector::pattern::Nth;
 use crate::selector::rule::{Matcher, MatcherData, Rule, RuleDefItem, RuleItem};
 use std::cmp::Ordering;
 use std::{collections::HashMap, ops::Range};
 
-const PRIORITY: u32 = 10;
-const DEF_NODES_LEN: usize = 5;
+const PRIORITY: u32 = PRIORITY_PSEUDO_SELECTOR;
+
 /// pseudo selector ":empty"
 fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 	// empty
@@ -17,29 +18,22 @@ fn pseudo_empty(rules: &mut Vec<RuleItem>) {
 		PRIORITY,
 		vec![],
 		Box::new(|_: MatcherData| Matcher {
-			all_handle: Some(Box::new(|eles: &Elements, _| {
-				let mut result = Elements::with_capacity(DEF_NODES_LEN);
-				for ele in eles.get_ref() {
-					let child_nodes = ele.child_nodes();
-					if child_nodes.is_empty() {
-						result.push(ele.cloned());
-					} else {
-						let mut only_comments = true;
-						for node in child_nodes {
-							match node.node_type() {
-								INodeType::Comment => continue,
-								_ => {
-									only_comments = false;
-									break;
-								}
-							}
-						}
-						if only_comments {
-							result.push(ele.cloned());
+			one_handle: Some(Box::new(|ele: &BoxDynElement, _| {
+				let child_nodes = ele.child_nodes();
+				if child_nodes.is_empty() {
+					return true;
+				}
+				let mut only_comments = true;
+				for node in child_nodes {
+					match node.node_type() {
+						INodeType::Comment => continue,
+						_ => {
+							only_comments = false;
+							break;
 						}
 					}
 				}
-				result
+				only_comments
 			})),
 			..Default::default()
 		}),

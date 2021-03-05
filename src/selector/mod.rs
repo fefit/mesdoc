@@ -1,7 +1,7 @@
 pub mod pattern;
 pub mod rule;
 
-use crate::error::Error;
+use crate::{constants::NAME_SELECTOR_ALL, error::Error};
 use lazy_static::lazy_static;
 use pattern::{exec, Matched};
 use rule::{Rule, RULES};
@@ -69,7 +69,7 @@ impl Combinator {
 	}
 }
 
-pub type SelectorSegment = (Arc<Rule>, Matcher, Combinator);
+pub type SelectorSegment = (Matcher, Combinator);
 #[derive(Default, Debug)]
 pub struct QueryProcess {
 	pub should_in: Option<SelectorGroupsItem>,
@@ -161,11 +161,7 @@ impl Selector {
 						let queues = &r.queues;
 						if queue_num == queues.len() {
 							// push to selector
-							Selector::add_group_item(
-								&mut groups,
-								(Arc::clone(r), r.make(&matched), comb),
-								is_new_item,
-							);
+							Selector::add_group_item(&mut groups, (r.make(&matched), comb), is_new_item);
 							finded = true;
 						} else if queues[queue_num].is_nested() {
 							// nested selector
@@ -178,11 +174,7 @@ impl Selector {
 							);
 							index += len;
 							matched.extend(nested_matched);
-							Selector::add_group_item(
-								&mut groups,
-								(Arc::clone(r), r.make(&matched), comb),
-								is_new_item,
-							);
+							Selector::add_group_item(&mut groups, (r.make(&matched), comb), is_new_item);
 							finded = true;
 						}
 						break;
@@ -236,14 +228,14 @@ impl Selector {
 			for (index, r) in group.iter_mut().enumerate() {
 				let mut total_priority = 0;
 				if r.len() > 1 {
-					let chain_comb = r[0].2;
+					let chain_comb = r[0].1;
 					r.sort_by(|a, b| b.0.priority.partial_cmp(&a.0.priority).unwrap());
 					let mut now_first = &mut r[0];
-					if now_first.2 != chain_comb {
-						now_first.2 = chain_comb;
+					if now_first.1 != chain_comb {
+						now_first.1 = chain_comb;
 						total_priority += now_first.0.priority;
 						for n in &mut r[1..] {
-							n.2 = Combinator::Chain;
+							n.1 = Combinator::Chain;
 							total_priority += n.0.priority;
 						}
 						continue;
@@ -260,7 +252,7 @@ impl Selector {
 			// if the first combinator is child, and the max_index > 1, use the max_index's rule first
 			if use_lookup && max_index > 0 {
 				let is_child = matches!(
-					group[0][0].2,
+					group[0][0].1,
 					Combinator::Children | Combinator::ChildrenAll
 				);
 				if is_child {
@@ -286,9 +278,9 @@ impl Selector {
 				&mut p.query
 			};
 			if let Some(rule) = v.get_mut(0) {
-				let first_comb = rule[0].2;
+				let first_comb = rule[0].1;
 				match first_comb {
-					Combinator::ChildrenAll => rule[0].2 = comb,
+					Combinator::ChildrenAll => rule[0].1 = comb,
 					_ => {
 						let segment = Selector::make_comb_all(comb);
 						v.insert(0, vec![segment]);
@@ -303,7 +295,7 @@ impl Selector {
 		if all_rule.is_none() {
 			let rules = RULES.lock().unwrap();
 			for (name, rule) in &rules[..] {
-				if *name == "all" {
+				if *name == NAME_SELECTOR_ALL {
 					*all_rule = Some(Arc::clone(rule));
 					break;
 				}
@@ -311,7 +303,7 @@ impl Selector {
 		}
 		let cur_rule = Arc::clone(all_rule.as_ref().expect("All rule must add to rules"));
 		let matcher = cur_rule.make(&[]);
-		(cur_rule, matcher, comb)
+		(matcher, comb)
 	}
 	// build a selector from a segment
 	pub fn from_segment(segment: SelectorSegment) -> Self {

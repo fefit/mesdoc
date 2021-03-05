@@ -1,5 +1,5 @@
 use super::pattern::{self, exec, to_pattern, BoxDynPattern, Matched, Pattern};
-use crate::{constants::USE_CACHE_DATAKEY, interface::Elements};
+use crate::{constants::PRIORITY_PSEUDO_SELECTOR, interface::Elements};
 use crate::{
 	interface::BoxDynElement,
 	utils::{to_static_str, vec_char_to_clean_str},
@@ -23,6 +23,8 @@ pub type MatcherFactory = Box<dyn (Fn(MatcherData) -> Matcher) + Send + Sync>;
 pub struct Matcher {
 	pub all_handle: Option<MatchAllHandle>,
 	pub one_handle: Option<MatchOneHandle>,
+	pub priority: u32,
+	pub in_cache: bool,
 }
 
 impl fmt::Debug for Matcher {
@@ -64,19 +66,6 @@ impl Matcher {
 	}
 }
 
-pub struct Rule {
-	pub in_cache: bool,
-	pub priority: u32,
-	pub(crate) queues: Vec<Box<dyn Pattern>>,
-	pub fields: Vec<DataKey>,
-	pub handle: MatcherFactory,
-}
-
-impl fmt::Debug for Rule {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.write_str(format!("Rule{{ queues: {:?} }}", self.queues).as_str())
-	}
-}
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct SavedDataKey(&'static str, usize, &'static str);
 pub type DataKey = (&'static str, usize);
@@ -150,6 +139,20 @@ impl MatchedStore {
 		let s = vec_char_to_clean_str(&mut self.suf_params);
 		let r = vec_char_to_clean_str(&mut self.raw_params);
 		to_pattern(name, s, r)
+	}
+}
+
+pub struct Rule {
+	pub in_cache: bool,
+	pub priority: u32,
+	pub(crate) queues: Vec<Box<dyn Pattern>>,
+	pub fields: Vec<DataKey>,
+	pub handle: MatcherFactory,
+}
+
+impl fmt::Debug for Rule {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str(format!("Rule{{ queues: {:?} }}", self.queues).as_str())
 	}
 }
 
@@ -320,7 +323,10 @@ impl Rule {
 	pub fn make(&self, data: &[Matched]) -> Matcher {
 		let handle = &self.handle;
 		let data = self.data(data);
-		handle(data)
+		let mut matcher = handle(data);
+		matcher.priority = self.priority;
+		matcher.in_cache = self.in_cache;
+		matcher
 	}
 	/// make a matcher by alias
 	pub fn make_alias(selector: &'static str) -> Matcher {
@@ -330,6 +336,9 @@ impl Rule {
 		Matcher {
 			all_handle: Some(Box::new(move |eles: &Elements, _| eles.filter(selector))),
 			one_handle: None,
+			// priority
+			priority: PRIORITY_PSEUDO_SELECTOR,
+			in_cache: false,
 		}
 	}
 
@@ -374,14 +383,6 @@ impl Rule {
 	// quick method to get param
 	pub fn param<T: Into<SavedDataKey>>(params: &MatcherData, v: T) -> Option<&'static str> {
 		params.get(&v.into()).copied()
-	}
-	// add use cache to matched data
-	pub fn use_cache(params: &mut MatcherData) {
-		params.insert(USE_CACHE_DATAKEY.into(), "1");
-	}
-	// check if use cache
-	pub fn is_use_cache(params: &MatcherData) -> bool {
-		params.get(&USE_CACHE_DATAKEY.into()).is_some()
 	}
 }
 
