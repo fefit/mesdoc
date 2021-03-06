@@ -757,8 +757,11 @@ impl<'a> Elements<'a> {
 				if let Some(handle) = &matcher.one_handle {
 					let exec = |ele: &BoxDynElement, result: &mut Elements| {
 						fn loop_handle(ele: &BoxDynElement, result: &mut Elements, handle: &MatchOneHandle) {
-							let child_nodes = ele.child_nodes();
-							for node in child_nodes {
+							let child_nodes_len = ele.child_nodes_length();
+							for index in 0..child_nodes_len {
+								let node = ele
+									.child_nodes_item(index)
+									.expect("child nodes index < length");
 								if matches!(node.node_type(), INodeType::Element) {
 									let child_ele = node
 										.typed()
@@ -823,8 +826,11 @@ impl<'a> Elements<'a> {
 				// because elements is unique, so the children is unique too
 				if let Some(handle) = &matcher.one_handle {
 					for ele in elements.get_ref() {
-						let child_nodes = ele.child_nodes();
-						for node in child_nodes {
+						let child_nodes_len = ele.child_nodes_length();
+						for index in 0..child_nodes_len {
+							let node = ele
+								.child_nodes_item(index)
+								.expect("child nodes index < length");
 							if matches!(node.node_type(), INodeType::Element) {
 								let child_ele = node
 									.typed()

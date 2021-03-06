@@ -3,7 +3,7 @@ use crate::utils::to_static_str;
 use std::error::Error;
 use std::rc::Rc;
 
-pub type MaybeDoc = Option<Box<dyn IDocumentTrait>>;
+pub type MaybeDoc<'a> = Option<Box<dyn IDocumentTrait + 'a>>;
 pub type IErrorHandle = Box<dyn Fn(Box<dyn Error>)>;
 pub trait IDocumentTrait {
 	fn get_element_by_id<'b>(&self, id: &str) -> Option<BoxDynElement<'b>>;

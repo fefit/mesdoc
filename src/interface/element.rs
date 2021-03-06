@@ -62,6 +62,7 @@ impl InsertPosition {
 		}
 	}
 }
+
 pub trait IElementTrait: INodeTrait {
 	fn is(&self, ele: &BoxDynElement) -> bool {
 		if let Some(uuid) = self.uuid() {
